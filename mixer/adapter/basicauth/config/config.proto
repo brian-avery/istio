@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+// config for basicauth adapter
+package adapter.basicauthadapter.config;
+
+import "gogoproto/gogo.proto";
+
+option go_package="config";
+
+
+// config for basicauth
+message Params {
+    // Path of the htpassword file.
+    string htpasswd_file = 1;
+}

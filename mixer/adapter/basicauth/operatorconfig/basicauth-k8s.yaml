@@ -1,0 +1,60 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: basicauth-volume
+  namespace: istio-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 200M
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: basicauthadapter
+  namespace: istio-system
+  labels:
+    app: basicauthadapter
+spec:
+  type: ClusterIP
+  ports:
+  - name: grpc
+    protocol: TCP
+    port: 8000
+    targetPort: 8000
+  selector:
+    app: basicauthadapter
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: basicauthadapter
+  namespace: istio-system
+  labels:
+    app: basicauthadapter
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: basicauthadapter
+      annotations:
+        sidecar.istio.io/inject: "false"
+        scheduler.alpha.kubernetes.io/critical-pod: ""
+    spec:
+      containers:
+      - name: basicauthadapter
+        image: briansvgs/basicauthadapter:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: basicauth-data
+          mountPath: /volume
+      volumes:
+      - name: basicauth-data
+        persistentVolumeClaim:
+          claimName: basicauth-volume
+

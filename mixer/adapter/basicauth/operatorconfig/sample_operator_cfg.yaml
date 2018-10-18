@@ -1,0 +1,38 @@
+# handler for adapter basicauthadapter
+apiVersion: "config.istio.io/v1alpha2"
+kind: handler
+metadata:
+ name: basicauthhandler
+ namespace: istio-system
+spec:
+ adapter: basicauthadapter
+ connection:
+   address: "basicauthadapter:8000"
+ params:
+   htpasswd_file: "/volume/htpasswd"
+---
+
+apiVersion: "config.istio.io/v1alpha2"
+kind: instance
+metadata:
+  name: requestcontext
+  namespace: istio-system
+spec:
+  template: authorization
+  params:
+    subject:
+      user: request.headers["authorization"]
+---
+
+# rule to dispatch to handler basicauthhandler
+apiVersion: "config.istio.io/v1alpha2"
+kind: rule
+metadata:
+ name: basicauthcheck
+ namespace: istio-system
+spec:
+ actions:
+ - handler: basicauthhandler.handler.istio-system
+   instances:
+   - requestcontext.instance.istio-system
+---
