@@ -1,73 +1,50 @@
 package authenticators
 
 import (
-	"crypto/md5"
-	"encoding/base64"
 	"fmt"
-	"io/ioutil"
-	"strings"
 
+	htpasswd "github.com/brian-avery/go-htpasswd"
 	"github.com/fsnotify/fsnotify"
 	"istio.io/istio/pkg/log"
 )
 
+const (
+	HashAlgorithmBcrypt = "$2y$"
+	HashAlgorithmMD5    = "$apr1$"
+	HashAlgorithmSha1   = "{SHA}"
+)
+
 type BasicAuthAuthenticator struct {
-	HTPasswdContent string
+	Users           map[string]string
+	htpasswdHandler *htpasswd.HtpasswdFile
 }
 
 func NewBasicAuthAdapter(path string) (*BasicAuthAuthenticator, error) {
-	data, err := getFileContents(path)
+	crypt, err := htpasswd.New(path,
+		[]htpasswd.PasswdParser{htpasswd.AcceptMd5, htpasswd.AcceptSha, htpasswd.AcceptBcrypt, htpasswd.AcceptSsha, htpasswd.AcceptPlain},
+		htpasswdBadLineHandler)
 	if err != nil {
-		return nil, fmt.Errorf("could not read htpasswd file: %s", err.Error())
+		log.Errorf("Could not create htpasswd handler: %s", err.Error())
+		return nil, fmt.Errorf("unable to create htpasswd handler: %s", err.Error())
 	}
+
 	adapter := &BasicAuthAuthenticator{
-		HTPasswdContent: data,
+		htpasswdHandler: crypt,
 	}
 	//adapter.monitor(path)
 	return adapter, nil
 }
 
-//Authenticate accepts
-func (auth BasicAuthAuthenticator) Authenticate(token string) (success bool, err error) {
-	// basic authentication stores tokens in the format b64(user:password).
-	// HTPasswd uses user:md5(password). Transform to match.
-	decodedToken, err := base64.StdEncoding.DecodeString(token)
-	if err != nil {
-		log.Errorf("unable to decode basic token: %s", err.Error())
-		return false, err
-	}
-	log.Infof("Have decoded token: %s", decodedToken)
-
-	//break on colon
-	tokenSegments := strings.Split(string(decodedToken), ":")
-	if len(tokenSegments) != 2 {
-		log.Errorf("token was not of the format base64(user:password)")
-		return false, fmt.Errorf("token was not of the format base64(user:password)")
+func (auth BasicAuthAuthenticator) Validate(user string, password string) bool {
+	log.Infof("Validate user: %s password: %s", user, password)
+	ok := auth.htpasswdHandler.Match(user, password)
+	if !ok {
+		log.Infof("User %s not present in system", user)
+		return false
 	}
 
-	log.Infof("Segments retrieved: %+v", tokenSegments)
-
-	passwdSum := md5.Sum([]byte(tokenSegments[1]))
-	hash := tokenSegments[0] + ":" + fmt.Sprintf("%x", passwdSum)
-	log.Infof("Got token: %s Hash: %s\n", token, hash)
-
-	//check to see if the htpasswd contains the credentials.
-	if strings.Contains(auth.HTPasswdContent, hash) {
-		log.Infof("Authenticated successfully.\n")
-		return true, nil
-	}
-	return false, nil
-}
-
-func getFileContents(path string) (string, error) {
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Errorf("unable to read changes to HTPassword file")
-	}
-
-	log.Infof("Read htpasswd: %+v", string(data))
-
-	return string(data), nil
+	log.Infof("failed to validate password")
+	return false
 }
 
 func (auth BasicAuthAuthenticator) monitor(path string) {
@@ -88,10 +65,8 @@ func (auth BasicAuthAuthenticator) monitor(path string) {
 				log.Infof("event:", event)
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					log.Infof("modified file:", event.Name)
-					if data, err := getFileContents(path); err != nil {
+					if err := auth.htpasswdHandler.Reload(htpasswdBadLineHandler); err != nil {
 						log.Errorf("could not read modified file contents: %s", err.Error())
-					} else {
-						auth.HTPasswdContent = data
 					}
 				}
 			case err, ok := <-watcher.Errors:
@@ -108,4 +83,8 @@ func (auth BasicAuthAuthenticator) monitor(path string) {
 		log.Errorf(err.Error())
 	}
 	<-done
+}
+
+func htpasswdBadLineHandler(err error) {
+	log.Errorf(err.Error())
 }
