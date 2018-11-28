@@ -16,3 +16,12 @@ build:
 push:
 	@echo "Pushing $(full_image)"
 	docker push $(full_image)
+
+deploy:
+	@echo "Deploying to istio-system"
+	kubectl delete pod -n istio-system -l app=basicauthadapter
+	kubectl apply -f operatorconfig/attributes.yaml -n istio-system
+	kubectl apply -f operatorconfig/authorizationtemplate.yaml -n istio-system
+	kubectl apply -f operatorconfig/basicauth-k8s.yaml -n istio-system
+	kubectl apply -f operatorconfig/basicauthadapter.yaml -n istio-system
+	kubectl apply -f operatorconfig/sample_operator_cfg.yaml -n istio-system

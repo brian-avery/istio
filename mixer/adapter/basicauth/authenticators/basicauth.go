@@ -8,21 +8,17 @@ import (
 	"istio.io/istio/pkg/log"
 )
 
-const (
-	HashAlgorithmBcrypt = "$2y$"
-	HashAlgorithmMD5    = "$apr1$"
-	HashAlgorithmSha1   = "{SHA}"
-)
-
 type BasicAuthAuthenticator struct {
-	Users           map[string]string
 	htpasswdHandler *htpasswd.HtpasswdFile
 }
 
+//NewBasicAuthAdapter creates a new instance of the basic auth autenticator
 func NewBasicAuthAdapter(path string) (*BasicAuthAuthenticator, error) {
+	fmt.Println("Create crypt")
+	log.Infof("Create cyrpt")
 	crypt, err := htpasswd.New(path,
 		[]htpasswd.PasswdParser{htpasswd.AcceptMd5, htpasswd.AcceptSha, htpasswd.AcceptBcrypt, htpasswd.AcceptSsha, htpasswd.AcceptPlain},
-		htpasswdBadLineHandler)
+		nil)
 	if err != nil {
 		log.Errorf("Could not create htpasswd handler: %s", err.Error())
 		return nil, fmt.Errorf("unable to create htpasswd handler: %s", err.Error())
@@ -31,41 +27,44 @@ func NewBasicAuthAdapter(path string) (*BasicAuthAuthenticator, error) {
 	adapter := &BasicAuthAuthenticator{
 		htpasswdHandler: crypt,
 	}
-	//adapter.monitor(path)
+	fmt.Printf("Setting up monitor for: %s", path)
+	log.Infof("Setting up monitor for: %s", path)
+	adapter.monitor(path)
 	return adapter, nil
 }
 
+//Validate validates a user token
 func (auth BasicAuthAuthenticator) Validate(user string, password string) bool {
-	log.Infof("Validate user: %s password: %s", user, password)
 	ok := auth.htpasswdHandler.Match(user, password)
 	if !ok {
 		log.Infof("User %s not present in system", user)
 		return false
 	}
 
-	log.Infof("failed to validate password")
-	return false
+	log.Infof("validated password successfully")
+	return true
 }
 
+//monitor accepts a path to an htpasswd file and monitors for changes, reloading the htpasswd file when they are detected
 func (auth BasicAuthAuthenticator) monitor(path string) {
+	fmt.Printf("monitor\n")
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Warnf("faild to create watcher for HTPasswd file: %s", err.Error())
+		log.Errorf("failed to create watcher for HTPasswd file: %s", err.Error())
 	}
 	defer watcher.Close()
 
-	done := make(chan bool)
 	go func() {
 		for {
+			fmt.Printf("Monitor\n")
 			select {
 			case event, ok := <-watcher.Events:
 				if !ok {
 					return
 				}
-				log.Infof("event:", event)
 				if event.Op&fsnotify.Write == fsnotify.Write {
-					log.Infof("modified file:", event.Name)
-					if err := auth.htpasswdHandler.Reload(htpasswdBadLineHandler); err != nil {
+					log.Infof("modified file: %s", event.Name)
+					if err := auth.htpasswdHandler.Reload(nil); err != nil {
 						log.Errorf("could not read modified file contents: %s", err.Error())
 					}
 				}
@@ -73,18 +72,13 @@ func (auth BasicAuthAuthenticator) monitor(path string) {
 				if !ok {
 					return
 				}
-				log.Errorf("error:", err)
+				log.Errorf("error:%s", err.Error())
 			}
 		}
 	}()
 
 	err = watcher.Add(path)
 	if err != nil {
-		log.Errorf(err.Error())
+		log.Errorf("Error adding watcher for path:%s %s", path, err.Error())
 	}
-	<-done
-}
-
-func htpasswdBadLineHandler(err error) {
-	log.Errorf(err.Error())
 }

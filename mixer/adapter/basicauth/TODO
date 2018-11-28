@@ -1,5 +1,4 @@
-// clean up monitor code
-// unit tests
-// e2e test
-
-//remove print adapter config
+TODO:
+* test htpasswd_path
+* test monitoring code
+* monitoring

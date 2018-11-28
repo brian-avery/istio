@@ -34,7 +34,7 @@ type (
 	BasicAuthAdapter struct {
 		listener               net.Listener
 		server                 *grpc.Server
-		basicAuthAuthenticator authenticators.BasicAuthAuthenticator
+		basicAuthAuthenticator *authenticators.BasicAuthAuthenticator
 	}
 )
 
@@ -47,8 +47,8 @@ const (
 )
 
 var (
-	VALID_DURATION        = 5 * time.Second
-	VALID_USE_COUNT int32 = 1000
+	ValidDuration       = 5 * time.Second
+	ValidUseCount int32 = 1000
 )
 
 var _ authorization.HandleAuthorizationServiceServer = &BasicAuthAdapter{}
@@ -56,8 +56,8 @@ var _ authorization.HandleAuthorizationServiceServer = &BasicAuthAdapter{}
 func (s *BasicAuthAdapter) getCheckResult(rpcStatus rpc.Status) *v1beta1.CheckResult {
 	return &v1beta1.CheckResult{
 		Status:        rpcStatus,
-		ValidDuration: VALID_DURATION,
-		ValidUseCount: VALID_USE_COUNT,
+		ValidDuration: ValidDuration,
+		ValidUseCount: ValidUseCount,
 	}
 }
 
@@ -66,64 +66,73 @@ func (s *BasicAuthAdapter) HandleAuthorization(ctx context.Context, r *authoriza
 	log.Infof("HandleAuthorization received request: %+v\n\n", *r)
 
 	if r == nil || r.Instance == nil || r.Instance.Subject == nil {
-		log.Errorf("No authorization info present.\n")
-		if r == nil {
-			log.Errorf("r is nil\n")
-		} else if r.Instance == nil {
-			log.Errorf("instance is nil")
-		} else if r.Instance.Subject == nil {
-			log.Errorf("Subject is nil")
-		}
-
-		return s.getCheckResult(status.New(rpc.INVALID_ARGUMENT)), fmt.Errorf("no authorization info present")
+		return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), fmt.Errorf("no authorization info present")
 	}
 
 	cfg := &config.Params{}
 	if r.AdapterConfig != nil {
 		if err := cfg.Unmarshal(r.AdapterConfig.Value); err != nil {
 			log.Errorf("error unmarshaling adapter config: %v", err)
-			return s.getCheckResult(status.New(rpc.INVALID_ARGUMENT)), err
+			return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), err
 		}
 	}
 
+	log.Infof("Received adapter config: %+v\n", cfg)
+
 	user := r.Instance.Subject.User
+	token, err := getBasicToken(user)
+	if err != nil {
+		return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), err
+	}
+
+	user, password, err := getTokenSegments(string(token))
+	if err != nil {
+		log.Errorf("unable to get token segments: %s", err.Error())
+		return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), err
+	}
+
+	if s.basicAuthAuthenticator == nil {
+		cfg.Htpasswd = "/volume/htpasswd"
+		s.basicAuthAuthenticator, err = authenticators.NewBasicAuthAdapter(cfg.Htpasswd)
+		if err != nil {
+			log.Errorf("unable to create basic auth adapter: %s", err.Error())
+			return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), err
+		}
+	}
+
+	if ok := s.basicAuthAuthenticator.Validate(user, password); ok {
+		return s.getCheckResult(status.OK), nil
+	}
+	return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), nil
+}
+
+func getBasicToken(user string) (string, error) {
 	firstSpace := strings.Index(user, " ")
 
 	if firstSpace == -1 {
-		log.Errorf("Missing authorization schema.\n")
-		return s.getCheckResult(status.New(rpc.INVALID_ARGUMENT)), fmt.Errorf("missing authorization schema")
+		return "", fmt.Errorf("missing authorization schema")
 	}
 
 	schema := strings.ToLower(user[:firstSpace])
 	token := strings.TrimSpace(user[firstSpace:])
 	if schema != SchemaBasic {
-		log.Errorf("Provided token is of an unknown type.")
-		return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), fmt.Errorf("Unknown token schema %s provided", schema)
+		return "", fmt.Errorf("invalid basic auth token")
 	}
+	return token, nil
+}
+
+func getTokenSegments(token string) (string, string, error) {
 	decodedToken, err := base64.StdEncoding.DecodeString(token)
 	if err != nil {
 		log.Errorf("unable to decode basic token: %s", err.Error())
-		return s.getCheckResult(status.New(rpc.INVALID_ARGUMENT)), err
+		return "", "", fmt.Errorf("unable to decode basic token: %s", err.Error())
 	}
-	log.Infof("Have decoded token: %s", decodedToken)
 
-	//break on colon
 	tokenSegments := strings.Split(string(decodedToken), ":")
 	if len(tokenSegments) != 2 {
-		log.Errorf("token was not of the format base64(user:password)")
-		return s.getCheckResult(status.New(rpc.INVALID_ARGUMENT)), fmt.Errorf("token was not of the format base64(user:password)")
+		return "", "", fmt.Errorf("token was not a base64 encoded username and password")
 	}
-
-	basicAuthAdapter, err := authenticators.NewBasicAuthAdapter(cfg.HtpasswdFile)
-	if err != nil {
-		log.Errorf("unable to create basic auth adapter: %s", err.Error())
-		return s.getCheckResult(status.New(rpc.INTERNAL)), err
-	}
-	log.Infof("Basic auth adapter created.")
-	if ok := basicAuthAdapter.Validate(tokenSegments[0], tokenSegments[1]); ok {
-		return s.getCheckResult(status.OK), nil
-	}
-	return s.getCheckResult(status.New(rpc.UNAUTHENTICATED)), nil
+	return tokenSegments[0], tokenSegments[1], nil
 }
 
 // Addr returns the listening address of the server

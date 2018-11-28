@@ -5,11 +5,10 @@ package adapter.basicauthadapter.config;
 
 import "gogoproto/gogo.proto";
 
-option go_package="config";
-
+option go_package = "config";
 
 // config for basicauth
 message Params {
-    // Path of the htpassword file.
-    string htpasswd_file = 1;
+  // Path of the htpassword file.
+  string htpasswd = 1;
 }
