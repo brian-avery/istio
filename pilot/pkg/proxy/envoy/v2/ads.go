@@ -19,6 +19,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -95,12 +96,16 @@ type XdsConnection struct {
 	RouteVersionInfoSent                  string
 	EndpointNonceSent, EndpointNonceAcked string
 	EndpointPercent                       int
+	VHostNonceSent, VHostNonceAcked       string
 
 	// current list of clusters monitored by the client
 	Clusters []string
 
 	// Both ADS and EDS streams implement this interface
 	stream DiscoveryStream
+
+	//Used for delta xDS communications
+	deltaStream DeltaDiscoveryStream
 
 	// Routes is the list of watched Routes.
 	Routes []string
@@ -113,6 +118,10 @@ type XdsConnection struct {
 	// added will be true if at least one discovery request was received, and the connection
 	// is added to the map of active.
 	added bool
+
+	// vhdsEnabled will be true if vhds is enabled.  If that's the case, then virtual hosts will be sent over VHDS and
+	// the list from RDS will be empty. If false, RDS will send virtual hosts
+	vhdsEnabled bool
 }
 
 // XdsEvent represents a config or registry event that results in a push.
@@ -476,11 +485,6 @@ func (s *DiscoveryServer) initConnectionNode(node *core.Node, con *XdsConnection
 	return nil
 }
 
-// DeltaAggregatedResources is not implemented.
-func (s *DiscoveryServer) DeltaAggregatedResources(stream ads.AggregatedDiscoveryService_DeltaAggregatedResourcesServer) error {
-	return status.Errorf(codes.Unimplemented, "not implemented")
-}
-
 // Compute and send the new configuration for a connection. This is blocking and may be slow
 // for large configs. The method will hold a lock on con.pushMutex.
 func (s *DiscoveryServer) pushConnection(con *XdsConnection, pushEv *XdsEvent) error {
@@ -555,9 +559,25 @@ func (s *DiscoveryServer) pushConnection(con *XdsConnection, pushEv *XdsEvent) e
 		}
 	}
 	if len(con.Routes) > 0 {
-		err := s.pushRoute(con, pushEv.push, currentVersion)
-		if err != nil {
-			return err
+		// BAVERY_QUESTION also, is it possible for resources to be unsubscribed from here?
+		//BAVERY_TODO: Find a better way to handle these environment variables than parsing each time
+		if useDeltaXDS, _ := strconv.ParseBool(con.modelNode.Metadata["USE_DELTA_XDS"]); useDeltaXDS {
+			err := s.pushDeltaRoute(con, pushEv.push, nil)
+			if err != nil {
+				return err
+			}
+
+			if con.vhdsEnabled {
+				err := s.pushDeltaVirtualHost(con, pushEv.push, nil)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			err := s.pushRoute(con, pushEv.push, pushEv.version)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	proxiesConvergeDelay.Record(time.Since(pushEv.start).Seconds())

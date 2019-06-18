@@ -1,0 +1,13 @@
+--- pilot/pkg/proxy/envoy/v2/ads.go
++++ pilot/pkg/proxy/envoy/v2/ads.go
+@@ -267,6 +282,10 @@ type XdsConnection struct {
+ 	// is added to the map of active.
+ 	added bool
+ 
++	// vhdsEnabled will be true if vhds is enabled.  If that's the case, then virtual hosts will be sent over VHDS and
++	// the list from RDS will be empty. If false, RDS will send virtual hosts
++	vhdsEnabled bool
++
+ 	// Time of last push
+ 	LastPush time.Time
+ 

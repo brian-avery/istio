@@ -26,6 +26,18 @@ var (
 	nodeTag    = monitoring.MustCreateLabel("node")
 	typeTag    = monitoring.MustCreateLabel("type")
 
+	vhdsReject = monitoring.NewGauge(
+		"pilot_xds_vhds_reject",
+		"Pilot rejected VHDS.",
+		nodeTag, errTag,
+	)
+
+	vhdsExpiredNonce = monitoring.NewGauge(
+		"pilot_vhds_expired_nonce",
+		"Total number of VHDS messages with an expired nonce.",
+		nodeTag, errTag,
+	)
+
 	cdsReject = monitoring.NewGauge(
 		"pilot_xds_cds_reject",
 		"Pilot rejected CSD configs.",
@@ -90,17 +102,23 @@ var (
 		monitoring.WithLabels(typeTag),
 	)
 
-	cdsPushes         = pushes.With(typeTag.Value("cds"))
-	cdsSendErrPushes  = pushes.With(typeTag.Value("cds_senderr"))
-	cdsBuildErrPushes = pushes.With(typeTag.Value("cds_builderr"))
-	edsPushes         = pushes.With(typeTag.Value("eds"))
-	edsSendErrPushes  = pushes.With(typeTag.Value("eds_senderr"))
-	ldsPushes         = pushes.With(typeTag.Value("lds"))
-	ldsSendErrPushes  = pushes.With(typeTag.Value("lds_senderr"))
-	ldsBuildErrPushes = pushes.With(typeTag.Value("lds_builderr"))
-	rdsPushes         = pushes.With(typeTag.Value("rds"))
-	rdsSendErrPushes  = pushes.With(typeTag.Value("rds_senderr"))
-	rdsBuildErrPushes = pushes.With(typeTag.Value("rds_builderr"))
+	cdsPushes              = pushes.With(typeTag.Value("cds"))
+	cdsSendErrPushes       = pushes.With(typeTag.Value("cds_senderr"))
+	cdsBuildErrPushes      = pushes.With(typeTag.Value("cds_builderr"))
+	edsPushes              = pushes.With(typeTag.Value("eds"))
+	edsSendErrPushes       = pushes.With(typeTag.Value("eds_senderr"))
+	ldsPushes              = pushes.With(typeTag.Value("lds"))
+	ldsSendErrPushes       = pushes.With(typeTag.Value("lds_senderr"))
+	ldsBuildErrPushes      = pushes.With(typeTag.Value("lds_builderr"))
+	rdsPushes              = pushes.With(typeTag.Value("rds"))
+	rdsSendErrPushes       = pushes.With(typeTag.Value("rds_senderr"))
+	rdsBuildErrPushes      = pushes.With(typeTag.Value("rds_builderr"))
+	deltaRdsPushes         = pushes.With(typeTag.Value("delta_rds"))
+	deltaRdsSendErrPushes  = pushes.With(typeTag.Value("delta_rds_senderr"))
+	deltaRdsBuildErrPushes = pushes.With(typeTag.Value("delta_rds_builderr"))
+	vhdsPushes             = pushes.With(typeTag.Value("vhds"))
+	vhdsSendErrPushes      = pushes.With(typeTag.Value("vhds_senderr"))
+	vhdsBuildErrPushes     = pushes.With(typeTag.Value("vhds_builderr"))
 
 	pushTime = monitoring.NewDistribution(
 		"pilot_xds_push_time",
@@ -165,6 +183,8 @@ func incrementXDSRejects(metric monitoring.Metric, node, errCode string) {
 
 func init() {
 	monitoring.MustRegister(
+		vhdsReject,
+		vhdsExpiredNonce,
 		cdsReject,
 		edsReject,
 		ldsReject,

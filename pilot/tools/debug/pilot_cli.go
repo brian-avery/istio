@@ -271,7 +271,7 @@ func portForwardPilot(kubeConfig, pilotURL string) (*os.Process, string, error) 
 func main() {
 	kubeConfig := flag.String("kubeconfig", "~/.kube/config", "path to the kubeconfig file. Default is ~/.kube/config")
 	pilotURL := flag.String("pilot", "", "pilot address. Will try port forward if not provided.")
-	configType := flag.String("type", "lds", "lds, cds, or eds. Default lds.")
+	configType := flag.String("type", "lds", "lds, cds, rds, or eds. Default lds.")
 	proxyType := flag.String("proxytype", "", "sidecar, ingress, router.")
 	proxyTag := flag.String("proxytag", "", "Pod name or app label or istio label to identify the proxy.")
 	resources := flag.String("res", "", "Resource(s) to get config for. LDS/CDS should leave it empty.")
@@ -293,6 +293,16 @@ func main() {
 	}()
 	pod := NewPodInfo(*proxyTag, resolveKubeConfigPath(*kubeConfig), *proxyType)
 
+	if xdsType != nil && *xdsType == "delta" {
+		deltaXDS(*configType, *resources, *proxyType, *kubeConfig, outputFile, pilot)
+	} else {
+		standardXDS(*configType, *resources, *proxyType, *kubeConfig, outputFile, pilot)
+	}
+}
+
+func standardXDS(configType string, resources string, proxyType string,
+	kubeConfig string, outputFile *string, pilot string) {
+
 	var resp *xdsapi.DiscoveryResponse
 	switch *configType {
 	case "lds", "cds":
@@ -313,5 +323,23 @@ func main() {
 		fmt.Printf("%v\n", strResponse)
 	} else if err := ioutil.WriteFile(*outputFile, []byte(strResponse), 0644); err != nil {
 		log.Errorf("Cannot write output to file %q", *outputFile)
+	}
+}
+
+func deltaXDS(configType string, resources string, proxyType string,
+	kubeConfig string, outputFile *string, pilot string) {
+
+	if configType == "rds" {
+		var resp *xdsapi.DeltaDiscoveryResponse
+		pod := NewPodInfo(resources, resolveKubeConfigPath(kubeConfig), proxyType)
+		if pod == nil {
+			log.Errorf("Pods for resources %v and proxy type %s not found", resources, proxyType)
+			os.Exit(1)
+		}
+		resp = pod.getXDSResource(pilot, configType)
+		fmt.Printf("Response: %+v", resp)
+	} else {
+		log.Errorf("Unknown config type: %q", configType)
+		os.Exit(1)
 	}
 }
