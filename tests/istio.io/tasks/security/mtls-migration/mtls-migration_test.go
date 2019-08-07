@@ -34,42 +34,46 @@ func TestMain(m *testing.M) {
 		Run()
 }
 
-//https://istio.io/docs/tasks/security/mtls-migration/
-//https://github.com/istio/istio.io/blob/release-1.2/content/docs/tasks/security/mtls-migration/index.md
-func TestMTLS(t *testing.T) {
-	ex := examples.New(t, "mtls-migration")
-
-	//The following line is just an example of how to use addfile.
-	ex.Apply("istio-system", "samples/sleep/sleep.yaml")
-	ex.RunScript("create-ns-foo-bar.sh", examples.TextOutput)
-
-	ex.RunScript("curl-foo-bar-legacy.sh", examples.TextOutput)
-
-	//verify that all requests returns 200 ok
-
-	ex.RunScript("verify-initial-policies.sh", examples.TextOutput)
-
+func validateInitialPolicies(output string) error {
 	//verify that only the following exist:
 	// NAMESPACE      NAME                          AGE
 	// istio-system   grafana-ports-mtls-disabled   3m
 
-	ex.RunScript("verify-initial-destinationrules.sh", examples.TextOutput)
+	return nil
+}
 
+func validateInitialDestinationRules(output string) error {
 	//verify that only the following exists:
 	//NAMESPACE      NAME              AGE
 	//istio-system   istio-policy      25m
 	//istio-system   istio-telemetry   25m
 
-	ex.RunScript("configure-mtls-destinationrule.sh", examples.TextOutput)
-	ex.RunScript("curl-foo-bar-legacy.sh", examples.TextOutput)
+	return nil
+}
 
+func curlVerify200FromAllRequests(output string) error {
 	//verify 200ok from all requests
 
-	ex.RunScript("httpbin-foo-mtls-only.sh", examples.TextOutput)
-	ex.RunScript("curl-foo-bar-legacy.sh", examples.TextOutput)
+	return nil
+}
 
+func Verify200FromFirstTwoRequestsAnd503FromThird(output string) error {
 	//verify 200 from first 2 requests and 503 from 3rd request
 
-	ex.RunScript("cleanup.sh", examples.TextOutput)
-	ex.Run()
+	return nil
+}
+
+//https://istio.io/docs/tasks/security/mtls-migration/
+//https://github.com/istio/istio.io/blob/release-1.2/content/docs/tasks/security/mtls-migration/index.md
+func TestMTLS(t *testing.T) {
+	examples.New(t, "mtls-migration").
+		AddScript("", "curl-foo-bar-legacy.sh", examples.TextOutput, nil).
+		AddScript("", "verify-initial-policies.sh", examples.TextOutput, validateInitialPolicies).
+		AddScript("", "verify-initial-destinationrules.sh", examples.TextOutput, validateInitialDestinationRules).
+		AddScript("", "configure-mtls-destinationrule.sh", examples.TextOutput, nil).
+		AddScript("", "curl-foo-bar-legacy.sh", examples.TextOutput, nil).
+		AddScript("", "httpbin-foo-mtls-only.sh", examples.TextOutput, nil).
+		AddScript("", "curl-foo-bar-legacy.sh", examples.TextOutput, nil).
+		AddScript("", "cleanup.sh", examples.TextOutput, nil).
+		Run()
 }

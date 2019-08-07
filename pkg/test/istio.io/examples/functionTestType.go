@@ -14,34 +14,31 @@
 package examples
 
 import (
-	"io"
-	"os"
+	"fmt"
 	"testing"
 
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
+	"istio.io/istio/pkg/test/scopes"
 )
 
-type testStep interface {
-	Run(*kube.Environment, *testing.T) (string, error)
-	Copy(path string) error
+type functionTestType struct {
+	testFunction testFunc
 }
 
-func copyFile(src string, dest string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
+func newStepFunction(testFunction testFunc) testStep {
+	return functionTestType{
+		testFunction: testFunction,
 	}
-	defer sourceFile.Close()
+}
 
-	destFile, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
+func (test functionTestType) Run(env *kube.Environment, t *testing.T) (string, error) {
+	scopes.CI.Infof(fmt.Sprintf("Executing function\n"))
+	err := test.testFunction(t)
 
-	_, err = io.Copy(destFile, sourceFile)
-	if err != nil {
-		return err
-	}
+	//TODO: Fix this. Should function allow output?
+	return "", err
+}
+
+func (test functionTestType) Copy(path string) error {
 	return nil
 }

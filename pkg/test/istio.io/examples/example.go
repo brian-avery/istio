@@ -16,28 +16,33 @@ package examples
 import (
 	"fmt"
 	"os"
+	"path"
 	"testing"
 
+	"istio.io/istio/pkg/test/env"
 	"istio.io/istio/pkg/test/framework/components/environment/kube"
 	"istio.io/istio/pkg/test/scopes"
 
 	"istio.io/istio/pkg/test/framework"
 )
 
-type outputType string
+type outputType outputTypeImpl
 
-const (
+var (
 	// TextOutput describes a test which returns text output
-	TextOutput outputType = "text"
+	TextOutput outputType = textOutput{}
 	// YamlOutput describes a test which returns yaml output
-	YamlOutput outputType = "yaml"
+	YamlOutput outputType = yamlOutput{}
 	// JSONOutput describes a test which returns json output
-	JSONOutput outputType = "json"
+	JSONOutput outputType = jsonOutput{}
 )
 
 const (
 	istioPath = "istio.io/istio/"
 )
+
+//ValidationFunction is used to define a function that will be used to verify output
+type ValidationFunction func(stdOut string) error
 
 // Example manages the steps in a test, executes them, and records the output
 type Example struct {
@@ -47,8 +52,8 @@ type Example struct {
 }
 
 // New returns an instance of an example test
-func New(t *testing.T, name string) Example {
-	return Example{
+func New(t *testing.T, name string) *Example {
+	return &Example{
 		name:  name,
 		steps: make([]testStep, 0),
 		t:     t,
@@ -56,15 +61,16 @@ func New(t *testing.T, name string) Example {
 }
 
 // RunScript adds a directive to run a script
-func (example *Example) RunScript(script string, output outputType) {
-	//fullPath := getFullPath(istioPath + script)
-	example.steps = append(example.steps, newStepScript("./"+script, output))
+func (example *Example) RunScript(namespace string, script string, output outputType, validator ValidationFunction) *Example {
+	example.steps = append(example.steps, newStepScript(namespace, script, output, validator))
+	return example
 }
 
-// Apply applies an existing file
-func (example *Example) Apply(namespace string, path string) {
+// AddFile adds an existing file
+func (example *Example) Apply(namespace string, path string) *Example {
 	fullPath := getFullPath(istioPath + path)
 	example.steps = append(example.steps, newStepFile(namespace, fullPath, false))
+	return example
 }
 
 // Delete deletes an existing file
@@ -73,41 +79,26 @@ func (example *Example) Delete(namespace string, path string) {
 	example.steps = append(example.steps, newStepFile(namespace, fullPath, true))
 }
 
-// todo: get last script run output
-type testFunc func(t *testing.T)
+type testFunc func(t *testing.T) error
 
 // Exec registers a callback to be invoked synchronously. This is typically used for
 // validation logic to ensure command-lines worked as intended
-func (example *Example) Exec(testFunction testFunc) {
+func (example *Example) Exec(testFunction testFunc) *Example {
 	example.steps = append(example.steps, newStepFunction(testFunction))
+	return example
 }
 
 // getFullPath reads the current gopath from environment variables and appends
 // the specified path to it
-func getFullPath(path string) string {
-	gopath := os.Getenv("GOPATH")
-	return gopath + "/src/" + path
+func getFullPath(scriptPath string) string {
+	return path.Join(env.IstioTop, "/src/"+scriptPath)
 
 }
 
 // Run runs the scripts and capture output
-// Note that this overrides os.Stdout/os.Stderr and is not thread-safe
+// TODO: this overrides os.Stdout/os.Stderr and is not thread-safe
 func (example *Example) Run() {
-
-	//override stdout and stderr for test. Is there a better way of doing this?
-
-	/*prevStdOut := os.Stdout
-	prevStdErr := os.Stderr
-	defer func() {
-		os.Stdout = prevStdOut
-		os.Stderr = prevStdErr
-	}()*/
-
-	//f, err := os.Create(
-	//os.StdOut =
-
 	scopes.CI.Infof(fmt.Sprintf("Executing test %s (%d steps)", example.name, len(example.steps)))
-
 	//create directory if it doesn't exist
 	if _, err := os.Stat(example.name); os.IsNotExist(err) {
 		err := os.Mkdir(example.name, os.ModePerm)
