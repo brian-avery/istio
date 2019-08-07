@@ -42,3 +42,7 @@ func (test functionTestType) Run(env *kube.Environment, t *testing.T) (string, e
 func (test functionTestType) Copy(path string) error {
 	return nil
 }
+
+func (test functionTestType) String() string {
+	return fmt.Sprintf("test function")
+}

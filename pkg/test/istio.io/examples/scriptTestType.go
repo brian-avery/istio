@@ -29,18 +29,16 @@ import (
 )
 
 type scriptTestType struct {
-	script    string
-	output    outputType
-	validator ValidationFunction
-	namespace string
+	script   string
+	output   outputType
+	verifier VerificationFunction
 }
 
-func newStepScript(namespace string, script string, output outputType, validator ValidationFunction) testStep {
+func newStepScript(script string, output outputType, verifier VerificationFunction) testStep {
 	return scriptTestType{
-		script:    script,
-		output:    output,
-		validator: validator,
-		namespace: namespace,
+		script:   script,
+		output:   output,
+		verifier: verifier,
 	}
 }
 
@@ -49,10 +47,8 @@ func (test scriptTestType) Run(env *kube.Environment, t *testing.T) (string, err
 
 	script, err := ioutil.ReadFile(test.script)
 	if err != nil {
-		return "", fmt.Errorf("test framework failed to read script: %s", err)
+		return "", fmt.Errorf("test framework failed to read script: %s\n", err)
 	}
-
-	//TODO: Does #!/bin/sh need to be removed?
 
 	//replace @.*@ with the correct paths
 	atMatch := regexp.MustCompile("@.*@")
@@ -66,15 +62,79 @@ func (test scriptTestType) Run(env *kube.Environment, t *testing.T) (string, err
 	cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s", env.Settings().KubeConfig))
 	output, err := cmd.CombinedOutput()
 
-	//if a validation function is provided, execute that and use errors from that instead.
-	//if a validation function is not provided, return errors from execution instead.
-	if test.validator != nil {
-		return string(output), test.validator(string(output))
+	test.output.Write(test.script, output)
+
+	//if a verification function is provided, execute that and use errors from that instead.
+	//if a verification function is not provided, return errors from execution instead.
+	scopes.CI.Infof(fmt.Sprintf("Verifying %s\n", test.script))
+	if test.verifier != nil {
+		return string(output), test.verifier(string(output))
 	}
 
-	test.output.Write(test.script, output)
 	return string(output), err
 }
-func (test scriptTestType) Copy(path string) error {
-	return copyFile(test.script, path)
+func (test scriptTestType) Copy(filename string) error {
+	fmt.Sprintf("Copying %s to %s", test.script, path.Join("/output/", filename))
+	return copyFile(test.script, path.Join("/output/", filename))
+}
+
+func (test scriptTestType) String() string {
+	return fmt.Sprintf("%s", test.script)
+}
+
+func checkCurlResponse(returnCode string, expectedReturnCode string) error {
+	if returnCode != expectedReturnCode {
+		return fmt.Errorf("expected return code to be %s; actual: %s\n", expectedReturnCode, returnCode)
+	}
+	return nil
+}
+
+func VerifyCurlRequests(output string, responses []string) error {
+	lines := strings.Split(output, "\n")
+
+	i := 0
+	for ; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" {
+			continue
+		}
+
+		if i > len(responses) {
+			return fmt.Errorf("expected %d responses; got: %d", len(responses), len(lines))
+		}
+
+		//get the http return code from end of the curl output.
+		returnCodeRegex := regexp.MustCompile("[0-9]*$")
+		returnCode := returnCodeRegex.FindString(line)
+
+		//for 000, compare 000 and the next line
+		if returnCode == "000" {
+			fmt.Printf("Curl response was 000. Processing next line as string.\n")
+			if err := checkCurlResponse(returnCode, responses[i]); err != nil {
+				return err
+			}
+
+			if len(lines) < i+1 || lines[i+1] != responses[i+1] {
+				return fmt.Errorf("expected output to be: %s; actual was: %s", responses[i+1], lines[i+1])
+			}
+
+			i++
+			continue
+		}
+
+		if err := checkCurlResponse(returnCode, responses[i]); err != nil {
+			return err
+		}
+	}
+	if i < len(responses) {
+		return fmt.Errorf("expected %d responses; got: %d", len(responses), len(lines))
+	}
+
+	return nil
+}
+
+func GetCurlVerifier(responses []string) func(string) error {
+	return func(output string) error {
+		return VerifyCurlRequests(output, responses)
+	}
 }

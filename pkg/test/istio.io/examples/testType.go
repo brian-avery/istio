@@ -24,6 +24,7 @@ import (
 type testStep interface {
 	Run(*kube.Environment, *testing.T) (string, error)
 	Copy(path string) error
+	String() string
 }
 
 func copyFile(src string, dest string) error {

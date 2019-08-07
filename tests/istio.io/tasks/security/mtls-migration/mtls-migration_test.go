@@ -13,19 +13,24 @@
 package tests
 
 import (
+	"fmt"
+	"strings"
 	"testing"
-
-	"istio.io/istio/pkg/test/istio.io/examples"
 
 	"istio.io/istio/pkg/test/framework"
 	"istio.io/istio/pkg/test/framework/components/environment"
-
 	"istio.io/istio/pkg/test/framework/components/istio"
+	"istio.io/istio/pkg/test/istio.io/examples"
 )
 
 var (
 	ist istio.Instance
 )
+
+func setupConfig(cfg *istio.Config) {
+
+	cfg.Values["global.mtls.enabled"] = "false"
+}
 
 func TestMain(m *testing.M) {
 	framework.NewSuite("mtls-migration", m).
@@ -39,6 +44,24 @@ func validateInitialPolicies(output string) error {
 	// NAMESPACE      NAME                          AGE
 	// istio-system   grafana-ports-mtls-disabled   3m
 
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		return fmt.Errorf("expected output to be 2 lines; actual: %d", len(lines))
+	}
+
+	parts := strings.Split(lines[1], " ")
+	if len(parts) != 2 {
+		fmt.Errorf("expected output to follow: namespace, name, age; actual was: %s", lines[1])
+	}
+
+	if parts[0] != "istio-system" {
+		return fmt.Errorf("expected namespace to be istio-system actual: %s", parts[0])
+	}
+
+	if parts[1] != "grafana-ports-mtls-disabled" {
+		return fmt.Errorf("expected policies to be grafana-ports-mtls-disabled actual: %s", parts[1])
+	}
+
 	return nil
 }
 
@@ -48,17 +71,33 @@ func validateInitialDestinationRules(output string) error {
 	//istio-system   istio-policy      25m
 	//istio-system   istio-telemetry   25m
 
-	return nil
-}
+	lines := strings.Split(output, "\n")
+	if len(lines) < 3 {
+		return fmt.Errorf("expected output to be 3 lines; actual: %d", len(lines))
+	}
 
-func curlVerify200FromAllRequests(output string) error {
-	//verify 200ok from all requests
+	line := lines[1]
+	parts := strings.Split(line, " ")
+	if len(parts) != 2 {
+		fmt.Errorf("expected output to follow namespace, name, age; actual was: %s", line)
+	}
 
-	return nil
-}
+	if parts[0] != "istio-system" {
+		fmt.Errorf("expected namespace to be istio-system; actual: %s", parts[0])
+	}
 
-func Verify200FromFirstTwoRequestsAnd503FromThird(output string) error {
-	//verify 200 from first 2 requests and 503 from 3rd request
+	if parts[1] != "istio-policy" {
+		fmt.Errorf("expected name to be istio-policy; actual: %s", parts[1])
+	}
+
+	line = lines[2]
+	if parts[0] != "istio-system" {
+		fmt.Errorf("expected namespace to be istio-system; actual: %s", parts[0])
+	}
+
+	if parts[1] != "istio-policy" {
+		fmt.Errorf("expected name to be istio-telemetry; actual: %s", parts[2])
+	}
 
 	return nil
 }
@@ -66,14 +105,19 @@ func Verify200FromFirstTwoRequestsAnd503FromThird(output string) error {
 //https://istio.io/docs/tasks/security/mtls-migration/
 //https://github.com/istio/istio.io/blob/release-1.2/content/docs/tasks/security/mtls-migration/index.md
 func TestMTLS(t *testing.T) {
+	//Test
 	examples.New(t, "mtls-migration").
-		AddScript("", "curl-foo-bar-legacy.sh", examples.TextOutput, nil).
-		AddScript("", "verify-initial-policies.sh", examples.TextOutput, validateInitialPolicies).
-		AddScript("", "verify-initial-destinationrules.sh", examples.TextOutput, validateInitialDestinationRules).
-		AddScript("", "configure-mtls-destinationrule.sh", examples.TextOutput, nil).
-		AddScript("", "curl-foo-bar-legacy.sh", examples.TextOutput, nil).
-		AddScript("", "httpbin-foo-mtls-only.sh", examples.TextOutput, nil).
-		AddScript("", "curl-foo-bar-legacy.sh", examples.TextOutput, nil).
-		AddScript("", "cleanup.sh", examples.TextOutput, nil).
+		RunScript("create-ns-foo-bar-legacy.sh", examples.TextOutput, nil).
+		WaitForPods(examples.NewMultiPodFetch("foo")).
+		WaitForPods(examples.NewMultiPodFetch("bar")).
+		WaitForPods(examples.NewMultiPodFetch("legacy")).
+		RunScript("curl-foo-bar-legacy.sh", examples.TextOutput, examples.GetCurlVerifier([]string{"200", "200", "200"})).
+		//RunScript("verify-initial-policies.sh", examples.TextOutput, validateInitialPolicies).
+		//RunScript("verify-initial-destinationrules.sh", examples.TextOutput, validateInitialDestinationRules).
+		RunScript("configure-mtls-destinationrule.sh", examples.TextOutput, nil).
+		RunScript("curl-foo-bar-legacy_post_dr.sh", examples.TextOutput, examples.GetCurlVerifier([]string{"200", "200", "200"})).
+		RunScript("httpbin-foo-mtls-only.sh", examples.TextOutput, nil).
+		RunScript("curl-foo-bar-legacy_httpbin_foo_mtls.sh", examples.TextOutput, examples.GetCurlVerifier([]string{"200", "200", "000", "command terminated with exit code 56"})).
+		RunScript("cleanup.sh", examples.TextOutput, nil).
 		Run()
 }

@@ -1,0 +1,16 @@
+Error from server (AlreadyExists): namespaces "foo" already exists
+service/httpbin unchanged
+deployment.apps/httpbin configured
+serviceaccount/sleep unchanged
+service/sleep unchanged
+deployment.apps/sleep configured
+Error from server (AlreadyExists): namespaces "bar" already exists
+service/httpbin unchanged
+deployment.apps/httpbin configured
+serviceaccount/sleep unchanged
+service/sleep unchanged
+deployment.apps/sleep configured
+Error from server (AlreadyExists): namespaces "legacy" already exists
+serviceaccount/sleep unchanged
+service/sleep unchanged
+deployment.apps/sleep unchanged

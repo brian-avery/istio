@@ -54,3 +54,7 @@ func (test fileTestType) Run(env *kube.Environment, t *testing.T) (string, error
 func (test fileTestType) Copy(path string) error {
 	return copyFile(test.path, path)
 }
+
+func (test fileTestType) String() string {
+	return fmt.Sprintf("%s on %s. Delete is set to %t", test.path, test.namespace, test.delete)
+}

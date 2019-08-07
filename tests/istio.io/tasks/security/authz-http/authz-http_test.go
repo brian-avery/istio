@@ -64,11 +64,11 @@ func setup(t *testing.T) {
 	ex := examples.New(t, "Setup")
 	defer ex.Run()
 
-	ex.RunScript("setup.sh", examples.TextOutput)
+	ex.RunScript("setup.sh", examples.TextOutput, nil)
 	ex.Apply(ns, "samples/bookinfo/platform/kube/bookinfo.yaml")
 	ex.Apply(ns, "samples/bookinfo/networking/bookinfo-gateway.yaml")
 	ex.Apply(ns, "samples/sleep/sleep.yaml")
-	ex.RunScript("wait.sh", examples.TextOutput)
+	ex.RunScript("wait.sh", examples.TextOutput, nil)
 }
 
 func enablingIstioAuthorization(t *testing.T) {
@@ -76,7 +76,7 @@ func enablingIstioAuthorization(t *testing.T) {
 	defer ex.Run()
 
 	ex.Apply("", "samples/bookinfo/platform/kube/rbac/rbac-config-ON.yaml")
-	ex.RunScript("verify-enablingIstioAuthorization.sh", examples.TextOutput)
+	ex.RunScript("verify-enablingIstioAuthorization.sh", examples.TextOutput, nil)
 }
 
 func enforcingNamespaceLevelAccessControl(t *testing.T) {
@@ -84,9 +84,9 @@ func enforcingNamespaceLevelAccessControl(t *testing.T) {
 	defer ex.Run()
 
 	ex.Apply(ns, "samples/bookinfo/platform/kube/rbac/namespace-policy.yaml")
-	ex.RunScript("verify-enforcingNamespaceLevelAccessControl.sh", examples.TextOutput)
+	ex.RunScript("verify-enforcingNamespaceLevelAccessControl.sh", examples.TextOutput, nil)
 	ex.Delete(ns, "samples/bookinfo/platform/kube/rbac/namespace-policy.yaml")
-	ex.RunScript("verify-enablingIstioAuthorization.sh", examples.TextOutput)
+	ex.RunScript("verify-enablingIstioAuthorization.sh", examples.TextOutput, nil)
 }
 
 func enforcingServiceLevelAccessControlStep1(t *testing.T) {
@@ -94,7 +94,7 @@ func enforcingServiceLevelAccessControlStep1(t *testing.T) {
 	defer ex.Run()
 
 	ex.Apply(ns, "samples/bookinfo/platform/kube/rbac/productpage-policy.yaml")
-	ex.RunScript("verify-enforcingServiceLevelAccessControlStep1.sh", examples.TextOutput)
+	ex.RunScript("verify-enforcingServiceLevelAccessControlStep1.sh", examples.TextOutput, nil)
 }
 
 func enforcingServiceLevelAccessControlStep2(t *testing.T) {
@@ -102,7 +102,7 @@ func enforcingServiceLevelAccessControlStep2(t *testing.T) {
 	defer ex.Run()
 
 	ex.Apply(ns, "samples/bookinfo/platform/kube/rbac/details-reviews-policy.yaml")
-	ex.RunScript("verify-enforcingServiceLevelAccessControlStep2.sh", examples.TextOutput)
+	ex.RunScript("verify-enforcingServiceLevelAccessControlStep2.sh", examples.TextOutput, nil)
 }
 
 func enforcingServiceLevelAccessControlStep3(t *testing.T) {
@@ -110,5 +110,5 @@ func enforcingServiceLevelAccessControlStep3(t *testing.T) {
 	defer ex.Run()
 
 	ex.Apply(ns, "samples/bookinfo/platform/kube/rbac/ratings-policy.yaml")
-	ex.RunScript("verify-enforcingServiceLevelAccessControlStep3.sh", examples.TextOutput)
+	ex.RunScript("verify-enforcingServiceLevelAccessControlStep3.sh", examples.TextOutput, nil)
 }

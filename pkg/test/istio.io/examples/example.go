@@ -41,8 +41,8 @@ const (
 	istioPath = "istio.io/istio/"
 )
 
-//ValidationFunction is used to define a function that will be used to verify output
-type ValidationFunction func(stdOut string) error
+//VerificationFunction is used to define a function that will be used to verify output
+type VerificationFunction func(stdOut string) error
 
 // Example manages the steps in a test, executes them, and records the output
 type Example struct {
@@ -61,8 +61,14 @@ func New(t *testing.T, name string) *Example {
 }
 
 // RunScript adds a directive to run a script
-func (example *Example) RunScript(namespace string, script string, output outputType, validator ValidationFunction) *Example {
-	example.steps = append(example.steps, newStepScript(namespace, script, output, validator))
+func (example *Example) RunScript(script string, output outputType, verifier VerificationFunction) *Example {
+	example.steps = append(example.steps, newStepScript(script, output, verifier))
+	return example
+}
+
+//WaitForPods adds a directive to wait for pods provided by a PodFunc to deploy
+func (example *Example) WaitForPods(fetchFunc KubePodFetchFunc) *Example {
+	example.steps = append(example.steps, newWaitForPodTestType(fetchFunc))
 	return example
 }
 
@@ -96,14 +102,14 @@ func getFullPath(scriptPath string) string {
 }
 
 // Run runs the scripts and capture output
-// TODO: this overrides os.Stdout/os.Stderr and is not thread-safe
 func (example *Example) Run() {
 	scopes.CI.Infof(fmt.Sprintf("Executing test %s (%d steps)", example.name, len(example.steps)))
 	//create directory if it doesn't exist
-	if _, err := os.Stat(example.name); os.IsNotExist(err) {
-		err := os.Mkdir(example.name, os.ModePerm)
+	if _, err := os.Stat("output"); os.IsNotExist(err) {
+		err := os.Mkdir("output", os.ModePerm)
 		if err != nil {
-			example.t.Fatalf("test framework failed to create directory: %s", err)
+			fmt.Printf("test framework failed to create directory: %s\n", err)
+			example.t.Fail()
 		}
 	}
 
@@ -112,13 +118,17 @@ func (example *Example) Run() {
 		Run(func(ctx framework.TestContext) {
 			kubeEnv, ok := ctx.Environment().(*kube.Environment)
 			if !ok {
-				example.t.Fatalf("test framework unable to get Kubernetes environment")
+				fmt.Printf("test framework unable to get Kubernetes environment\n")
+				example.t.Fail()
 			}
 			for _, step := range example.steps {
 				output, err := step.Run(kubeEnv, example.t)
+				step.Copy("output/")
+				example.t.Logf("Executing %s\n", step)
 				example.t.Log(output)
 				if err != nil {
-					example.t.Fatal(err)
+					fmt.Printf("Error: %s\n", err.Error())
+					example.t.Fail()
 				}
 			}
 		})
