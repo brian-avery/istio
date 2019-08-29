@@ -55,24 +55,19 @@ func (s *DiscoveryServer) pushRoute(con *XdsConnection, push *model.PushContext,
 }
 
 func (s *DiscoveryServer) pushDeltaRoute(con *XdsConnection, push *model.PushContext, removedResources []string) error {
-	rawRoutes, err := s.generateRawRoutes(con, push)
-	if err != nil {
-		return err
-	}
-
+	rawRoutes := s.generateRawRoutes(con, push)
 	if s.DebugConfigs {
 		for _, r := range rawRoutes {
 			con.RouteConfigs[r.Name] = r
 			if adsLog.DebugEnabled() {
-				resp, _ := model.ToJSONWithIndent(r, " ")
+				resp, _ := protomarshal.ToJSONWithIndent(r, " ")
 				adsLog.Debugf("RDS: Adding route %s for node %v", resp, con.modelNode)
 			}
 		}
 	}
 
 	response := deltaRouteDiscoveryResponse(rawRoutes, removedResources)
-	err = con.sendDelta(response)
-	if err != nil {
+	if err := con.sendDelta(response); err != nil {
 		adsLog.Warnf("ADS: RDS: Send failure for node %v, closing grpc %v", con.modelNode, err)
 		deltaRdsSendErrPushes.Increment()
 		return err
@@ -98,20 +93,13 @@ func (s *DiscoveryServer) generateRawRoutes(con *XdsConnection, push *model.Push
 }
 
 func (s *DiscoveryServer) generateRouteConfig(con *XdsConnection, push *model.PushContext, routeName string) (*xdsapi.RouteConfiguration, error) {
-	routeConfig, err := s.ConfigGenerator.BuildHTTPRoutes(s.Env, con.modelNode, push, routeName)
-	if err != nil {
-		retErr := fmt.Errorf("RDS: Failed to generate route %s for node %v: %v", routeName, con.modelNode, err)
-		adsLog.Warnf("RDS: Failed to generate routes for route %s for node %v: %v", routeName, con.modelNode, err)
-		deltaRdsBuildErrPushes.Increment()
-		return nil, retErr
-	}
-
+	routeConfig := s.ConfigGenerator.BuildHTTPRoutes(s.Env, con.modelNode, push, routeName)
 	if routeConfig == nil {
-		adsLog.Warnf("RDS: got nil value for route %s for node %v: %v", routeName, con.modelNode, err)
+		adsLog.Warnf("RDS: got nil value for route %s for node %v", routeName, con.modelNode)
 		return nil, nil
 	}
 
-	if err = routeConfig.Validate(); err != nil {
+	if err := routeConfig.Validate(); err != nil {
 		retErr := fmt.Errorf("RDS: Generated invalid route %s for node %v: %v", routeName, con.modelNode, err)
 		adsLog.Errorf("RDS: Generated invalid routes for route: %s for node: %v: %v, %v", routeName, con.modelNode, err, routeConfig)
 		deltaRdsBuildErrPushes.Increment()
@@ -132,7 +120,7 @@ func deltaRouteDiscoveryResponse(routeConfigs []*xdsapi.RouteConfiguration, remo
 
 	for _, routeConfig := range routeConfigs {
 		marshaledRoute, _ := types.MarshalAny(routeConfig)
-		resp.Resources = append(resp.Resources, xdsapi.Resource{
+		resp.Resources = append(resp.Resources, &xdsapi.Resource{
 			Name: routeConfig.Name,
 			//BAVERY_TODO: Add version.... md5? Something else? xDS increments an integer, but I wonder if we can do one better (i.e. repeatable)
 			Resource: marshaledRoute,

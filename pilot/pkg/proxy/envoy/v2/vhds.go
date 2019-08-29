@@ -49,7 +49,7 @@ func deltaVirtualHostDiscoveryResponse(resources []*xdsapi.Resource, removedHost
 	}
 
 	for _, resource := range resources {
-		resp.Resources = append(resp.Resources, *resource)
+		resp.Resources = append(resp.Resources, resource)
 	}
 
 	resp.RemovedResources = removedHosts
@@ -62,18 +62,15 @@ func (s *DiscoveryServer) generateRawVhosts(con *XdsConnection, push *model.Push
 	// TODO: once per config update
 
 	for _, routeName := range con.Routes {
-		virtualHosts, err := s.ConfigGenerator.BuildVirtualHosts(s.Env, con.modelNode, push, routeName)
-		if err != nil {
-			adsLog.Errorf("Error generating route config for %s: %s", routeName, err.Error())
-			continue
-		} else if virtualHosts == nil {
+		virtualHosts := s.ConfigGenerator.BuildVirtualHosts(s.Env, con.modelNode, push, routeName)
+		if virtualHosts == nil {
 			adsLog.Warnf("No route config found for route %s\n", routeName)
 			continue
 		}
 
 		for _, virtualHost := range virtualHosts {
 			//Bavery_TODO: Marshal *should* take place just before we send....
-			marshaledVirtualHost, err := types.MarshalAny(&virtualHost)
+			marshaledVirtualHost, err := types.MarshalAny(virtualHost)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal virtual host: %+v", err.Error())
 			}

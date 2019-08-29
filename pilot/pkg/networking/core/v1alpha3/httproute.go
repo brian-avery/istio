@@ -34,6 +34,7 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
+	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/proto"
 )
@@ -384,7 +385,7 @@ func getVirtualHostsForSniffedServicePort(vhosts []*route.VirtualHost, routeName
 
 //BuildVirtualHosts builds a list of virtual hosts for a specified routeConfig name.
 func (configgen *ConfigGeneratorImpl) BuildVirtualHosts(env *model.Environment,
-	node *model.Proxy, push *model.PushContext, routeName string) ([]route.VirtualHost, error) {
+	node *model.Proxy, push *model.PushContext, routeName string) []*route.VirtualHost {
 	listenerPort := 0
 	var err error
 	listenerPort, err = strconv.Atoi(routeName)
@@ -392,43 +393,36 @@ func (configgen *ConfigGeneratorImpl) BuildVirtualHosts(env *model.Environment,
 		// we have a port whose name is http_proxy or unix:///foo/bar
 		// check for both.
 		if routeName != RDSHttpProxy && !strings.HasPrefix(routeName, model.UnixAddressPrefix) {
-			return nil, nil
+			return nil
 		}
 	}
 
 	var virtualServices []model.Config
 	var services []*model.Service
 
-	// Get the list of services that correspond to this egressListener from the sidecarScope
-	sidecarScope := node.SidecarScope
-	// sidecarScope should never be nil
-	if sidecarScope != nil && sidecarScope.Config != nil {
-		// this is a user supplied sidecar scope. Get the services from the egress listener
-		egressListener := node.SidecarScope.GetEgressListenerForRDS(listenerPort, routeName)
-		// We should never be getting a nil egress listener because the code that setup this RDS
-		// call obviously saw an egress listener
-		if egressListener == nil {
-			return nil, nil
-		}
-
-		services = egressListener.Services()
-		// To maintain correctness, we should only use the virtualservices for
-		// this listener and not all virtual services accessible to this proxy.
-		virtualServices = egressListener.VirtualServices()
-
-		// When generating RDS for ports created via the SidecarScope, we treat
-		// these ports as HTTP proxy style ports. All services attached to this listener
-		// must feature in this RDS route irrespective of the service port.
-		if egressListener.IstioListener != nil && egressListener.IstioListener.Port != nil {
-			listenerPort = 0
-		}
-	} else {
-		meshGateway := map[string]bool{model.IstioMeshGateway: true}
-		services = push.Services(node)
-		virtualServices = push.VirtualServices(node, meshGateway)
+	//BAVERY_TODO: clean this up
+	//BAVERY_TODO: is it true that sidecar will never be nil?
+	// this is a user supplied sidecar scope. Get the services from the egress listener
+	egressListener := node.SidecarScope.GetEgressListenerForRDS(listenerPort, routeName)
+	// We should never be getting a nil egress listener because the code that setup this RDS
+	// call obviously saw an egress listener
+	if egressListener == nil {
+		return nil
 	}
 
-	nameToServiceMap := make(map[model.Hostname]*model.Service)
+	services = egressListener.Services()
+	// To maintain correctness, we should only use the virtualservices for
+	// this listener and not all virtual services accessible to this proxy.
+	virtualServices = egressListener.VirtualServices()
+
+	// When generating RDS for ports created via the SidecarScope, we treat
+	// these ports as HTTP proxy style ports. All services attached to this listener
+	// must feature in this RDS route irrespective of the service port.
+	if egressListener.IstioListener != nil && egressListener.IstioListener.Port != nil {
+		listenerPort = 0
+	}
+
+	nameToServiceMap := make(map[host.Name]*model.Service)
 	for _, svc := range services {
 		if listenerPort == 0 {
 			// Take all ports when listen port is 0 (http_proxy or uds)
@@ -445,20 +439,23 @@ func (configgen *ConfigGeneratorImpl) BuildVirtualHosts(env *model.Environment,
 	}
 
 	// Collect all proxy labels for source match
-	var proxyLabels model.LabelsCollection
+	var proxyLabels labels.Collection
 	for _, w := range node.ServiceInstances {
 		proxyLabels = append(proxyLabels, w.Labels)
 	}
 
-	return getVirtualHosts(node, push, nameToServiceMap, proxyLabels, virtualServices, listenerPort), nil
+	return getVirtualHosts(node, push, nameToServiceMap, proxyLabels, virtualServices, listenerPort)
 }
 
-func getVirtualHosts(node *model.Proxy, push *model.PushContext, nameToServiceMap map[model.Hostname]*model.Service, proxyLabels model.LabelsCollection, virtualServices []model.Config, listenerPort int) []route.VirtualHost {
-	var virtualHosts []route.VirtualHost
+func getVirtualHosts(node *model.Proxy, push *model.PushContext,
+	nameToServiceMap map[host.Name]*model.Service, proxyLabels labels.Collection,
+	virtualServices []model.Config, listenerPort int) []*route.VirtualHost {
+
+	var virtualHosts []*route.VirtualHost
 
 	// Get list of virtual services bound to the mesh gateway
 	virtualHostWrappers := istio_route.BuildSidecarVirtualHostsFromConfigAndRegistry(node, push, nameToServiceMap, proxyLabels, virtualServices, listenerPort)
-	vHostPortMap := make(map[int][]route.VirtualHost)
+	vHostPortMap := make(map[int][]*route.VirtualHost)
 	var name string
 	uniques := make(map[string]struct{})
 	for _, virtualHostWrapper := range virtualHostWrappers {
@@ -466,14 +463,14 @@ func getVirtualHosts(node *model.Proxy, push *model.PushContext, nameToServiceMa
 		if len(virtualHostWrapper.Routes) == 0 {
 			continue
 		}
-		virtualHosts := make([]route.VirtualHost, 0, len(virtualHostWrapper.VirtualServiceHosts)+len(virtualHostWrapper.Services))
-		for _, host := range virtualHostWrapper.VirtualServiceHosts {
-			name = fmt.Sprintf("%s:%d", host, virtualHostWrapper.Port)
+		virtualHosts := make([]*route.VirtualHost, 0, len(virtualHostWrapper.VirtualServiceHosts)+len(virtualHostWrapper.Services))
+		for _, hostname := range virtualHostWrapper.VirtualServiceHosts {
+			name = fmt.Sprintf("%s:%d", hostname, virtualHostWrapper.Port)
 			if _, found := uniques[name]; !found {
 				uniques[name] = struct{}{}
-				virtualHosts = append(virtualHosts, route.VirtualHost{
+				virtualHosts = append(virtualHosts, &route.VirtualHost{
 					Name:    name,
-					Domains: []string{host, fmt.Sprintf("%s:%d", host, virtualHostWrapper.Port)},
+					Domains: []string{hostname, fmt.Sprintf("%s:%d", hostname, virtualHostWrapper.Port)},
 					Routes:  virtualHostWrapper.Routes,
 				})
 			} else {
@@ -485,13 +482,14 @@ func getVirtualHosts(node *model.Proxy, push *model.PushContext, nameToServiceMa
 			name = fmt.Sprintf("%s:%d", svc.Hostname, virtualHostWrapper.Port)
 			if _, found := uniques[name]; !found {
 				uniques[name] = struct{}{}
-				virtualHosts = append(virtualHosts, route.VirtualHost{
+				virtualHosts = append(virtualHosts, &route.VirtualHost{
 					Name:    name,
 					Domains: generateVirtualHostDomains(svc, virtualHostWrapper.Port, node),
 					Routes:  virtualHostWrapper.Routes,
 				})
 			} else {
-				log.Warnf("httproute(buildSidecarOutboundHTTPRouteConfig): Duplicate route entry %v. Dropping.", name)
+				push.Add(model.DuplicatedDomains, name, node, fmt.Sprintf("duplicate domain from virtual service: %s", name))
+				log.Debugf("Dropping duplicate route entry %v.", name)
 			}
 		}
 

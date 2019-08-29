@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"testing"
 
-	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/istio/tests/util"
 )
 
@@ -75,7 +75,7 @@ func TestVHDS(t *testing.T) {
 			t.Fatal("Received VHDS when it shouldn't be enabled")
 		}
 
-		strResponse, _ := model.ToJSONWithIndent(res, " ")
+		strResponse, _ := protomarshal.ToJSONWithIndent(res, " ")
 		fmt.Printf("Response: %+v", strResponse)
 	})
 
@@ -100,7 +100,7 @@ func TestVHDS(t *testing.T) {
 			t.Fatal("Received resources when not expected.")
 		}
 
-		strResponse, _ := model.ToJSONWithIndent(res, " ")
+		strResponse, _ := protomarshal.ToJSONWithIndent(res, " ")
 		fmt.Printf("Response: %+v", strResponse)
 	})
 
@@ -180,7 +180,7 @@ func TestVHDS(t *testing.T) {
 			t.Fatal("No virtual hosts received over VHDS.")
 		}
 
-		vhostJSON, _ := model.ToJSONWithIndent(vhdsResponse, " ")
+		vhostJSON, _ := protomarshal.ToJSONWithIndent(vhdsResponse, " ")
 		fmt.Printf("Bavery:Response3: %+v", vhostJSON)
 	})
 }

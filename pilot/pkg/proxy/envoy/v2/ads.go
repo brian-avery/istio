@@ -574,7 +574,7 @@ func (s *DiscoveryServer) pushConnection(con *XdsConnection, pushEv *XdsEvent) e
 				}
 			}
 		} else {
-			err := s.pushRoute(con, pushEv.push, pushEv.version)
+			err := s.pushRoute(con, s.globalPushContext(), versionInfo())
 			if err != nil {
 				return err
 			}
