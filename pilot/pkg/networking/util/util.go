@@ -268,12 +268,26 @@ func IsIstioVersionGE12(node *model.Proxy) bool {
 
 // IsIstioVersionGE13 checks whether the given Istio version is greater than or equals 1.3.
 func IsIstioVersionGE13(node *model.Proxy) bool {
-	return node.IstioVersion.Compare(&model.IstioVersion{Major: 1, Minor: 3, Patch: -1}) >= 0
+	return node.IstioVersion == nil ||
+		node.IstioVersion.Compare(&model.IstioVersion{Major: 1, Minor: 3, Patch: -1}) >= 0
 }
 
 // IsXDSMarshalingToAnyEnabled controls whether "marshaling to Any" feature is enabled.
 func IsXDSMarshalingToAnyEnabled(node *model.Proxy) bool {
 	return !features.DisableXDSMarshalingToAny
+}
+
+// IsProtocolSniffingEnabled checks whether protocol sniffing is enabled.
+func IsProtocolSniffingEnabledForNode(node *model.Proxy) bool {
+	return features.EnableProtocolSniffing.Get() && IsIstioVersionGE13(node)
+}
+
+func IsProtocolSniffingEnabledForInbound(node *model.Proxy) bool {
+	return features.EnableProtocolSniffingForInbound.Get() && IsIstioVersionGE13(node)
+}
+
+func IsProtocolSniffingEnabledForPort(node *model.Proxy, port *model.Port) bool {
+	return IsProtocolSniffingEnabledForNode(node) && port.Protocol.IsUnsupported()
 }
 
 // ResolveHostsInNetworksConfig will go through the Gateways addresses for all
@@ -313,6 +327,23 @@ func ConvertLocality(locality string) *core.Locality {
 		Zone:    zone,
 		SubZone: subzone,
 	}
+}
+
+// ConvertLocality converts '/' separated locality string to Locality struct.
+func LocalityToString(l *core.Locality) string {
+	if l == nil {
+		return ""
+	}
+	resp := l.Region
+	if l.Zone == "" {
+		return resp
+	}
+	resp += "/" + l.Zone
+	if l.SubZone == "" {
+		return resp
+	}
+	resp += "/" + l.SubZone
+	return resp
 }
 
 // IsLocalityEmpty checks if a locality is empty (checking region is good enough, based on how its initialized)
@@ -456,6 +487,34 @@ func MergeAnyWithStruct(any *types.Any, pbStruct *types.Struct) (*types.Any, err
 	var retVal *types.Any
 	// Convert the merged proto back to any
 	if retVal, err = types.MarshalAny(x.Message); err != nil {
+		return nil, err
+	}
+
+	return retVal, nil
+}
+
+// MergeAnyWithAny merges a given any typed message into the given Any typed message by dynamically inferring the
+// type of Any
+func MergeAnyWithAny(dst *types.Any, src *types.Any) (*types.Any, error) {
+	// Assuming that Pilot is compiled with this type [which should always be the case]
+	var err error
+	var dstX, srcX types.DynamicAny
+
+	// get an object of type used by this message
+	if err = types.UnmarshalAny(dst, &dstX); err != nil {
+		return nil, err
+	}
+
+	// get an object of type used by this message
+	if err = types.UnmarshalAny(src, &srcX); err != nil {
+		return nil, err
+	}
+
+	// Merge the two typed protos
+	proto.Merge(dstX.Message, srcX.Message)
+	var retVal *types.Any
+	// Convert the merged proto back to dst
+	if retVal, err = types.MarshalAny(dstX.Message); err != nil {
 		return nil, err
 	}
 

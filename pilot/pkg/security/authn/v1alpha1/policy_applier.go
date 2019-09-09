@@ -136,9 +136,13 @@ func convertToEnvoyJwtConfig(policyJwts []*authn_v1alpha1.Jwt) *envoy_jwt.JwtAut
 		}
 		provider.FromParams = policyJwt.JwtParams
 
-		jwtPubKey, err := authn_model.JwtKeyResolver.GetPublicKey(policyJwt.JwksUri)
-		if err != nil {
-			log.Errorf("Failed to fetch jwt public key from %q: %s", policyJwt.JwksUri, err)
+		jwtPubKey := policyJwt.Jwks
+		if jwtPubKey == "" {
+			var err error
+			jwtPubKey, err = authn_model.JwtKeyResolver.GetPublicKey(policyJwt.JwksUri)
+			if err != nil {
+				log.Errorf("Failed to fetch jwt public key from %q: %s", policyJwt.JwksUri, err)
+			}
 		}
 		provider.JwksSourceSpecifier = &envoy_jwt.JwtProvider_LocalJwks{
 			LocalJwks: &core.DataSource{
@@ -191,9 +195,13 @@ func convertToIstioJwtConfig(policyJwts []*authn_v1alpha1.Jwt) *istio_jwt.JwtAut
 		}
 		jwt.FromParams = policyJwt.JwtParams
 
-		jwtPubKey, err := authn_model.JwtKeyResolver.GetPublicKey(policyJwt.JwksUri)
-		if err != nil {
-			log.Errorf("Failed to fetch jwt public key from %q: %s", policyJwt.JwksUri, err)
+		jwtPubKey := policyJwt.Jwks
+		if jwtPubKey == "" {
+			var err error
+			jwtPubKey, err = authn_model.JwtKeyResolver.GetPublicKey(policyJwt.JwksUri)
+			if err != nil {
+				log.Errorf("Failed to fetch jwt public key from %q: %s", policyJwt.JwksUri, err)
+			}
 		}
 
 		// Put empty string in config even if above ResolveJwtPubKey fails.
@@ -255,6 +263,8 @@ func convertPolicyToAuthNFilterConfig(policy *authn_v1alpha1.Policy, proxyType m
 	p.Peers = usedPeers
 	filterConfig := &authn_filter.FilterConfig{
 		Policy: p,
+		// we can always set this field, it's no-op if mTLS is not used.
+		SkipValidateTrustDomain: features.SkipValidateTrustDomain.Get(),
 	}
 
 	// Remove targets part.
@@ -312,7 +322,7 @@ func (a v1alpha1PolicyApplier) AuthNFilter(proxyType model.NodeType, isXDSMarsha
 	return out
 }
 
-func (a v1alpha1PolicyApplier) InboundFilterChain(sdsUdsPath string, sdsUseTrustworthyJwt, sdsUseNormalJwt bool, meta map[string]string) []plugin.FilterChain {
+func (a v1alpha1PolicyApplier) InboundFilterChain(sdsUdsPath string, meta map[string]string) []plugin.FilterChain {
 	if a.policy == nil || len(a.policy.Peers) == 0 {
 		return nil
 	}
@@ -359,14 +369,14 @@ func (a v1alpha1PolicyApplier) InboundFilterChain(sdsUdsPath string, sdsUseTrust
 		}
 	} else {
 		tls.CommonTlsContext.TlsCertificateSdsSecretConfigs = []*auth.SdsSecretConfig{
-			authn_model.ConstructSdsSecretConfig(authn_model.SDSDefaultResourceName, sdsUdsPath, sdsUseTrustworthyJwt, sdsUseNormalJwt, meta),
+			authn_model.ConstructSdsSecretConfig(authn_model.SDSDefaultResourceName, sdsUdsPath, meta),
 		}
 
 		tls.CommonTlsContext.ValidationContextType = &auth.CommonTlsContext_CombinedValidationContext{
 			CombinedValidationContext: &auth.CommonTlsContext_CombinedCertificateValidationContext{
 				DefaultValidationContext: &auth.CertificateValidationContext{VerifySubjectAltName: []string{} /*subjectAltNames*/},
 				ValidationContextSdsSecretConfig: authn_model.ConstructSdsSecretConfig(authn_model.SDSRootResourceName,
-					sdsUdsPath, sdsUseTrustworthyJwt, sdsUseNormalJwt, meta),
+					sdsUdsPath, meta),
 			},
 		}
 	}

@@ -160,9 +160,13 @@ func (s *sdsservice) register(rpcs *grpc.Server) {
 func (s *sdsservice) DebugInfo() (string, error) {
 	sdsClientsMutex.RLock()
 	defer sdsClientsMutex.RUnlock()
-
 	clientDebug := make([]sdsclientdebug, 0)
 	for connKey, conn := range sdsClients {
+		// it's possible for the connection to be established without an instantiated secret
+		if conn.secret == nil {
+			continue
+		}
+
 		conn.mutex.RLock()
 		c := sdsclientdebug{
 			ConnectionID:     connKey.ConnectionID,
@@ -262,24 +266,29 @@ func (s *sdsservice) StreamSecrets(stream sds.SecretDiscoveryService_StreamSecre
 				token = t
 			}
 
-			// Update metric for metrics.
+			// Update metrics.
 			totalActiveConnCounts.Increment()
-
+			if discReq.ErrorDetail != nil {
+				totalSecretUpdateFailureCounts.Increment()
+			}
 			// When nodeagent receives StreamSecrets request, if there is cached secret which matches
 			// request's <token, resourceName, Version>, then this request is a confirmation request.
 			// nodeagent stops sending response to envoy in this case.
 			if discReq.VersionInfo != "" && s.st.SecretExist(conID, resourceName, token, discReq.VersionInfo) {
-				sdsServiceLog.Debugf("%s received SDS ACK from proxy %q, versionInfo %q\n",
-					conIDresourceNamePrefix, discReq.Node.Id, discReq.VersionInfo)
+				sdsServiceLog.Debugf("%s received SDS ACK from proxy %q, version info %q, "+
+					"error details %s\n", conIDresourceNamePrefix, discReq.Node.Id, discReq.VersionInfo,
+					discReq.ErrorDetail.GoString())
 				continue
 			}
 
 			if firstRequestFlag {
-				sdsServiceLog.Debugf("%s received first SDS request from proxy %q, versionInfo %q\n",
-					conIDresourceNamePrefix, discReq.Node.Id, discReq.VersionInfo)
+				sdsServiceLog.Debugf("%s received first SDS request from proxy %q, version info "+
+					"%q, error details %s\n", conIDresourceNamePrefix, discReq.Node.Id, discReq.VersionInfo,
+					discReq.ErrorDetail.GoString())
 			} else {
-				sdsServiceLog.Debugf("%s received SDS request from proxy %q, versionInfo %q\n",
-					conIDresourceNamePrefix, discReq.Node.Id, discReq.VersionInfo)
+				sdsServiceLog.Debugf("%s received SDS request from proxy %q, version info %q, "+
+					"error details %s\n", conIDresourceNamePrefix, discReq.Node.Id, discReq.VersionInfo,
+					discReq.ErrorDetail.GoString())
 			}
 
 			// In ingress gateway agent mode, if the first SDS request is received but kubernetes secret is not ready,

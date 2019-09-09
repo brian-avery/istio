@@ -23,11 +23,13 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	istio_rbac "istio.io/api/rbac/v1alpha1"
+	authpb "istio.io/api/security/v1beta1"
 
 	"istio.io/istio/pilot/pkg/config/memory"
 	"istio.io/istio/pilot/pkg/model"
 	authz_model "istio.io/istio/pilot/pkg/security/authz/model"
 	"istio.io/istio/pkg/config/host"
+	"istio.io/istio/pkg/config/schemas"
 )
 
 // We cannot import `testing` here, as it will bring extra test flags into the binary. Instead, just include the interface here
@@ -66,26 +68,14 @@ func NewServiceMetadata(hostname string, labels map[string]string, t mockTest) *
 
 func NewAuthzPolicies(policies []*model.Config, t mockTest) *model.AuthorizationPolicies {
 	t.Helper()
-
-	hasClusterRbacConfig := false
-	for _, p := range policies {
-		if p.Type == model.ClusterRbacConfig.Type {
-			hasClusterRbacConfig = true
-			break
-		}
-	}
-	if !hasClusterRbacConfig {
-		policies = append(policies, simpleClusterRbacConfig())
-	}
-
-	store := model.MakeIstioStore(memory.Make(model.IstioConfigTypes))
+	store := model.MakeIstioStore(memory.Make(schemas.Istio))
 	for _, p := range policies {
 		if _, err := store.Create(*p); err != nil {
-			t.Fatalf("failed to initilize authz policies: %s", err)
+			t.Fatalf("failed to initialize authz policies: %s", err)
 		}
 	}
 
-	authzPolicies, err := model.NewAuthzPolicies(&model.Environment{
+	authzPolicies, err := model.GetAuthorizationPolicies(&model.Environment{
 		IstioConfigStore: store,
 	})
 	if err != nil {
@@ -95,10 +85,10 @@ func NewAuthzPolicies(policies []*model.Config, t mockTest) *model.Authorization
 	return authzPolicies
 }
 
-func simpleClusterRbacConfig() *model.Config {
+func SimpleClusterRbacConfig() *model.Config {
 	cfg := &model.Config{
 		ConfigMeta: model.ConfigMeta{
-			Type:      model.ClusterRbacConfig.Type,
+			Type:      schemas.ClusterRbacConfig.Type,
 			Name:      "default",
 			Namespace: "default",
 		},
@@ -126,7 +116,7 @@ func SimpleRole(name string, namespace string, service string) *model.Config {
 	}
 	return &model.Config{
 		ConfigMeta: model.ConfigMeta{
-			Type:      model.ServiceRole.Type,
+			Type:      schemas.ServiceRole.Type,
 			Name:      name,
 			Namespace: namespace,
 		},
@@ -141,7 +131,7 @@ func BindingTag(name string) string {
 func SimpleBinding(name string, namespace string, role string) *model.Config {
 	return &model.Config{
 		ConfigMeta: model.ConfigMeta{
-			Type:      model.ServiceRoleBinding.Type,
+			Type:      schemas.ServiceRoleBinding.Type,
 			Name:      name,
 			Namespace: namespace,
 		},
@@ -170,30 +160,27 @@ func AuthzPolicyTag(name string) string {
 	return fmt.Sprintf("UserFromPolicy[%s]", name)
 }
 
-func SimpleAuthorizationPolicy(name string, namespace string, labels map[string]string, role string) *model.Config {
-	cfg := &model.Config{
+func SimpleAuthzPolicy(name string, namespace string) *model.Config {
+	return &model.Config{
 		ConfigMeta: model.ConfigMeta{
-			Type:      model.AuthorizationPolicy.Type,
+			Type:      schemas.AuthorizationPolicy.Type,
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: &istio_rbac.AuthorizationPolicy{
-			WorkloadSelector: &istio_rbac.WorkloadSelector{
-				Labels: labels,
-			},
-			Allow: []*istio_rbac.ServiceRoleBinding{
+		Spec: &authpb.AuthorizationPolicy{
+			Rules: []*authpb.Rule{
 				{
-					Subjects: []*istio_rbac.Subject{
+					From: []*authpb.Rule_From{
 						{
-							User: AuthzPolicyTag(name),
+							Source: &authpb.Source{
+								Principals: []string{AuthzPolicyTag(name)},
+							},
 						},
 					},
-					Role: role,
 				},
 			},
 		},
 	}
-	return cfg
 }
 
 func Verify(got *envoy_rbac.RBAC, want map[string][]string) error {

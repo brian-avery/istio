@@ -52,11 +52,6 @@ var (
 	// For larger clusters it can increase memory use and GC - useful for small tests.
 	DebugConfigs = env.RegisterBoolVar("PILOT_DEBUG_ADSZ_CONFIG", false, "").Get()
 
-	// RefreshDuration is the duration of periodic refresh, in case events or cache invalidation fail.
-	// Example: "300ms", "10s" or "2h45m".
-	// Default is 0 (disabled).
-	RefreshDuration = env.RegisterDurationVar("V2_REFRESH", 0, "").Get()
-
 	DebounceAfter = env.RegisterDurationVar(
 		"PILOT_DEBOUNCE_AFTER",
 		100*time.Millisecond,
@@ -71,6 +66,13 @@ var (
 		"The maximum amount of time to wait for events while debouncing. If events keep showing up with no breaks "+
 			"for this time, we'll trigger a push.",
 	).Get()
+
+	EnableEDSDebounce = env.RegisterBoolVar(
+		"PILOT_ENABLE_EDS_DEBOUNCE",
+		true,
+		"If enabled, Pilot will include EDS pushes in the push debouncing, configured by PILOT_DEBOUNCE_AFTER and PILOT_DEBOUNCE_MAX."+
+			" EDS pushes may be delayed, but there will be fewer pushes. By default this is enabled",
+	)
 
 	// BaseDir is the base directory for locating configs.
 	// File based certificates are located under $BaseDir/etc/certs/. If not set, the original 1.0 locations will
@@ -155,6 +157,13 @@ var (
 		false,
 		"Use the Istio JWT filter for JWT token verification.")
 
+	// SkipValidateTrustDomain tells the server proxy to not to check the peer's trust domain when
+	// mTLS is enabled in authentication policy.
+	SkipValidateTrustDomain = env.RegisterBoolVar(
+		"PILOT_SKIP_VALIDATE_TRUST_DOMAIN",
+		false,
+		"Skip validating the peer is from the same trust domain when mTLS is enabled in authentication policy")
+
 	RestrictPodIPTrafficLoops = env.RegisterBoolVar(
 		"PILOT_RESTRICT_POD_UP_TRAFFIC_LOOP",
 		true,
@@ -163,11 +172,51 @@ var (
 			"and will be removed in the near future.",
 	)
 
+	EnableProtocolSniffing = env.RegisterBoolVar(
+		"PILOT_ENABLE_PROTOCOL_SNIFFING",
+		true,
+		"If enabled, protocol sniffing will be used on ports whose port protocol is not specified or unsupported",
+	)
+
+	EnableProtocolSniffingForInbound = env.RegisterBoolVar(
+		"PILOT_ENABLE_PROTOCOL_SNIFFING_FOR_INBOUND",
+		true,
+		"If enabled, protocol sniffing will be used for inbound listeners",
+	)
+
 	ScopePushes = env.RegisterBoolVar(
 		"PILOT_SCOPE_PUSHES",
 		true,
 		"If enabled, pilot will attempt to limit unnecessary pushes by determining what proxies "+
 			"a config or endpoint update will impact.",
+	)
+
+	ScopeGatewayToNamespace = env.RegisterBoolVar(
+		"PILOT_SCOPE_GATEWAY_TO_NAMESPACE",
+		false,
+		"If enabled, a gateway workload can only select gateway resources in the same namespace. "+
+			"Gateways with same selectors in different namespaces will not be applicable.",
+	)
+
+	RespectDNSTTL = env.RegisterBoolVar(
+		"PILOT_RESPECT_DNS_TTL",
+		true,
+		"If enabled, DNS based clusters will respect the TTL of the DNS, rather than polling at a fixed rate. "+
+			"This option is only provided for backward compatibility purposes and will be removed in the near future.",
+	)
+
+	InboundProtocolDetectionTimeout = env.RegisterDurationVar(
+		"PILOT_INBOUND_PROTOCOL_DETECTION_TIMEOUT",
+		1*time.Second,
+		"Protocol detection timeout for inbound listener",
+	).Get()
+
+	EnableHeadlessService = env.RegisterBoolVar(
+		"PILOT_ENABLE_HEADLESS_SERVICE_POD_LISTENERS",
+		true,
+		"If enabled, for a headless service/stateful set in Kubernetes, pilot will generate an "+
+			"outbound listener for each pod in a headless service. This feature should be disabled "+
+			"if headless services have a large number of pods. ",
 	)
 )
 

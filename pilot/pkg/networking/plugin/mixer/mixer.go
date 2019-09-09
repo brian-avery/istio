@@ -88,12 +88,24 @@ func NewPlugin() plugin.Plugin {
 	return mixerplugin{}
 }
 
+// proxyVersionToString converts IstioVersion to a semver format string.
+func proxyVersionToString(v *model.IstioVersion) string {
+	major := strconv.Itoa(v.Major)
+	minor := strconv.Itoa(v.Minor)
+	patch := strconv.Itoa(v.Patch)
+	return strings.Join([]string{major, minor, patch}, ".")
+}
+
 func createOutboundListenerAttributes(in *plugin.InputParams) attributes {
 	attrs := attributes{
 		"source.uid":            attrUID(in.Node),
 		"source.namespace":      attrNamespace(in.Node),
 		"context.reporter.uid":  attrUID(in.Node),
 		"context.reporter.kind": attrStringValue("outbound"),
+	}
+	if in.Node.IstioVersion != nil {
+		vs := proxyVersionToString(in.Node.IstioVersion)
+		attrs["context.proxy_version"] = attrStringValue(vs)
 	}
 	return attrs
 }
@@ -133,6 +145,18 @@ func (mixerplugin) OnOutboundListener(in *plugin.InputParams, mutable *plugin.Mu
 			}
 		}
 		return nil
+	case plugin.ListenerProtocolAuto:
+		tcpFilter := buildOutboundTCPFilter(in.Env.Mesh, attrs, in.Node, in.Service)
+		httpFilter := buildOutboundHTTPFilter(in.Env.Mesh, attrs, in.Node)
+		for cnum := range mutable.FilterChains {
+			switch mutable.FilterChains[cnum].ListenerProtocol {
+			case plugin.ListenerProtocolHTTP:
+				mutable.FilterChains[cnum].HTTP = append(mutable.FilterChains[cnum].HTTP, httpFilter)
+			case plugin.ListenerProtocolTCP:
+				mutable.FilterChains[cnum].TCP = append(mutable.FilterChains[cnum].TCP, tcpFilter)
+			}
+		}
+		return nil
 	}
 
 	return fmt.Errorf("unknown listener type %v in mixer.OnOutboundListener", in.ListenerProtocol)
@@ -149,6 +173,14 @@ func (mixerplugin) OnInboundListener(in *plugin.InputParams, mutable *plugin.Mut
 		"destination.namespace": attrNamespace(in.Node),
 		"context.reporter.uid":  attrUID(in.Node),
 		"context.reporter.kind": attrStringValue("inbound"),
+	}
+	if in.Node.IstioVersion != nil {
+		vs := proxyVersionToString(in.Node.IstioVersion)
+		attrs["context.proxy_version"] = attrStringValue(vs)
+	}
+
+	if meshID, found := in.Node.Metadata[model.NodeMetadataMeshID]; found {
+		attrs["destination.mesh.id"] = attrStringValue(meshID)
 	}
 
 	switch address := mutable.Listener.Address.Address.(type) {
@@ -176,6 +208,19 @@ func (mixerplugin) OnInboundListener(in *plugin.InputParams, mutable *plugin.Mut
 		for cnum := range mutable.FilterChains {
 			mutable.FilterChains[cnum].TCP = append(mutable.FilterChains[cnum].TCP, filter)
 		}
+		return nil
+	case plugin.ListenerProtocolAuto:
+		httpFilter := buildInboundHTTPFilter(in.Env.Mesh, attrs, in.Node)
+		tcpFilter := buildInboundTCPFilter(in.Env.Mesh, attrs, in.Node)
+		for cnum := range mutable.FilterChains {
+			switch mutable.FilterChains[cnum].ListenerProtocol {
+			case plugin.ListenerProtocolHTTP:
+				mutable.FilterChains[cnum].HTTP = append(mutable.FilterChains[cnum].HTTP, httpFilter)
+			case plugin.ListenerProtocolTCP:
+				mutable.FilterChains[cnum].TCP = append(mutable.FilterChains[cnum].TCP, tcpFilter)
+			}
+		}
+
 		return nil
 	}
 
@@ -493,12 +538,6 @@ func buildInboundRouteConfig(in *plugin.InputParams, instance *model.ServiceInst
 	}
 
 	if configStore != nil {
-		apiSpecs := configStore.HTTPAPISpecByDestination(instance)
-		model.SortHTTPAPISpec(apiSpecs)
-		for _, apiSpec := range apiSpecs {
-			out.HttpApiSpec = append(out.HttpApiSpec, apiSpec.Spec.(*mccpb.HTTPAPISpec))
-		}
-
 		quotaSpecs := configStore.QuotaSpecByDestination(instance)
 		model.SortQuotaSpec(quotaSpecs)
 		for _, quotaSpec := range quotaSpecs {

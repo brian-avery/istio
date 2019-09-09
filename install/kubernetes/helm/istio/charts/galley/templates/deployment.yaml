@@ -28,6 +28,9 @@ spec:
         istio: galley
       annotations:
         sidecar.istio.io/inject: "false"
+         {{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: istio-galley-service-account
 {{- if .Values.global.priorityClassName }}
@@ -58,6 +61,9 @@ spec:
           - --insecure=false
 {{- else }}
           - --insecure=true
+{{- end }}
+{{- if .Values.enableServiceDiscovery }}
+          - --enableServiceDiscovery=true
 {{- end }}
 {{- if not $.Values.global.useMCP }}
           - --enable-server=false

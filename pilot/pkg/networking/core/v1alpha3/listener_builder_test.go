@@ -15,11 +15,16 @@
 package v1alpha3
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
+	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	xdsutil "github.com/envoyproxy/go-control-plane/pkg/util"
+
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/plugin"
+	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pkg/config/protocol"
 )
 
@@ -44,6 +49,7 @@ func getDefaultProxy() model.Proxy {
 			model.NodeMetadataConfigNamespace: "not-default",
 			"ISTIO_VERSION":                   "1.3",
 		},
+		IstioVersion:    model.ParseIstioVersion("1.3"),
 		ConfigNamespace: "not-default",
 	}
 }
@@ -145,10 +151,8 @@ func setInboundCaptureAllOnThisNode(proxy *model.Proxy) {
 	proxy.Metadata[model.IstioIncludeInboundPorts] = model.AllPortsLiteral
 }
 
-func TestVirtualInboundListenerBuilder(t *testing.T) {
-
+func prepareListeners(t *testing.T) []*v2.Listener {
 	// prepare
-	t.Helper()
 	ldsEnv := getDefaultLdsEnv()
 	service := buildService("test.com", wildcardIP, protocol.HTTP, tnow)
 	services := []*model.Service{service}
@@ -171,11 +175,16 @@ func TestVirtualInboundListenerBuilder(t *testing.T) {
 	setNilSidecarOnProxy(&proxy, env.PushContext)
 
 	builder := NewListenerBuilder(&proxy)
-	listeners := builder.buildSidecarInboundListeners(ldsEnv.configgen, &env, &proxy, env.PushContext).
+	return builder.buildSidecarInboundListeners(ldsEnv.configgen, &env, &proxy, env.PushContext).
 		buildVirtualOutboundListener(ldsEnv.configgen, &env, &proxy, env.PushContext).
-		buildVirtualInboundListener(&env, &proxy).
+		buildVirtualInboundListener(ldsEnv.configgen, &env, &proxy, env.PushContext).
 		getListeners()
+}
 
+func TestVirtualInboundListenerBuilder(t *testing.T) {
+	// prepare
+	t.Helper()
+	listeners := prepareListeners(t)
 	// app port listener and virtual inbound listener
 	if len(listeners) != 3 {
 		t.Fatalf("expected %d listeners, found %d", 3, len(listeners))
@@ -194,5 +203,84 @@ func TestVirtualInboundListenerBuilder(t *testing.T) {
 		t.Fatalf("expect virtual listener, found %s", listeners[2].Name)
 	} else {
 		t.Logf("found virtual inbound listener: %s", listeners[2].Name)
+	}
+
+	l := listeners[2]
+
+	byListenerName := map[string]int{}
+
+	for _, fc := range l.FilterChains {
+		byListenerName[fc.Metadata.FilterMetadata[PilotMetaKey].Fields["original_listener_name"].GetStringValue()]++
+	}
+
+	for k, v := range byListenerName {
+		if k == VirtualInboundListenerName && v != 2 {
+			t.Fatalf("expect virtual listener has 2 passthrough listeners, found %d", v)
+		}
+		if k == listeners[0].Name && v != len(listeners[0].FilterChains) {
+			t.Fatalf("expect virtual listener has %d filter chains from listener %s, found %d", len(listeners[0].FilterChains), l.Name, v)
+		}
+	}
+}
+
+func TestVirtualInboundHasPassthroughClusters(t *testing.T) {
+	// prepare
+	t.Helper()
+	listeners := prepareListeners(t)
+	// app port listener and virtual inbound listener
+	if len(listeners) != 3 {
+		t.Fatalf("expect %d listeners, found %d", 3, len(listeners))
+	}
+
+	l := listeners[2]
+	// 2 is the 1 passthrough tcp filter chain for ipv4 and 1 http filter chain for ipv4
+	if len(l.FilterChains) != len(listeners[0].FilterChains)+2 {
+		t.Fatalf("expect virtual listener has %d filter chains as the sum of 2nd level listeners "+
+			"plus the 2 fallthrough filter chains, found %d", len(listeners[0].FilterChains)+2, len(l.FilterChains))
+	}
+
+	sawIpv4PassthroughCluster := false
+	sawIpv6PassthroughCluster := false
+	for _, fc := range l.FilterChains {
+		if len(fc.Filters) == 1 && fc.Filters[0].Name == xdsutil.TCPProxy &&
+			fc.Metadata.FilterMetadata[PilotMetaKey].Fields["original_listener_name"].GetStringValue() == VirtualInboundListenerName {
+			if ipLen := len(fc.FilterChainMatch.PrefixRanges); ipLen != 1 {
+				t.Fatalf("expect passthrough filter chain has 1 ip address, found %d", ipLen)
+			}
+			if fc.FilterChainMatch.PrefixRanges[0].AddressPrefix == util.ConvertAddressToCidr("0.0.0.0/0").AddressPrefix &&
+				fc.FilterChainMatch.PrefixRanges[0].PrefixLen.Value == 0 {
+				if sawIpv4PassthroughCluster {
+					t.Fatalf("duplicated ipv4 passthrough cluster filter chain in listener %v", l)
+				}
+				sawIpv4PassthroughCluster = true
+			} else if fc.FilterChainMatch.PrefixRanges[0].AddressPrefix == util.ConvertAddressToCidr("::0/0").AddressPrefix &&
+				fc.FilterChainMatch.PrefixRanges[0].PrefixLen.Value == 0 {
+				if sawIpv6PassthroughCluster {
+					t.Fatalf("duplicated ipv6 passthrough cluster filter chain in listener %v", l)
+				}
+				sawIpv6PassthroughCluster = true
+			}
+		}
+
+		if len(fc.Filters) == 1 && fc.Filters[0].Name == xdsutil.HTTPConnectionManager &&
+			fc.Metadata.FilterMetadata[PilotMetaKey].Fields["original_listener_name"].GetStringValue() == VirtualInboundListenerName {
+			if !reflect.DeepEqual(fc.FilterChainMatch.ApplicationProtocols, applicationProtocols) {
+				t.Fatalf("expect %v application protocols, found %v", applicationProtocols, fc.FilterChainMatch.ApplicationProtocols)
+			}
+		}
+	}
+
+	if !sawIpv4PassthroughCluster {
+		t.Fatalf("fail to find the ipv4 passthrough filter chain in listener %v", l)
+	}
+
+	if len(l.ListenerFilters) != 2 {
+		t.Fatalf("expected %d listener filters, found %d", 2, len(l.ListenerFilters))
+	}
+
+	if l.ListenerFilters[0].Name != xdsutil.OriginalDestination ||
+		l.ListenerFilters[1].Name != envoyListenerHTTPInspector {
+		t.Fatalf("expect listener filters [%q, %q], found [%q, %q]",
+			xdsutil.OriginalDestination, envoyListenerHTTPInspector, l.ListenerFilters[0].Name, l.ListenerFilters[1].Name)
 	}
 }

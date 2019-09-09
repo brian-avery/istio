@@ -344,6 +344,10 @@ type IstioEndpoint struct {
 
 // ServiceAttributes represents a group of custom attributes of the service.
 type ServiceAttributes struct {
+	// ServiceRegistry indicates the backing service registry system where this service
+	// was sourced from.
+	// TODO: move the ServiceRegistry type from platform.go to model
+	ServiceRegistry string
 	// Name is "destination.service.name" attribute
 	Name string
 	// Namespace is "destination.service.namespace" attribute
@@ -475,8 +479,7 @@ func (ports PortList) Get(name string) (*Port, bool) {
 // GetByPort retrieves a port declaration by port value
 func (ports PortList) GetByPort(num int) (*Port, bool) {
 	for _, port := range ports {
-		if port.Port == num && port.Protocol != protocol.UDP &&
-			port.Protocol != protocol.Unsupported {
+		if port.Port == num && port.Protocol != protocol.UDP {
 			return port, true
 		}
 	}
