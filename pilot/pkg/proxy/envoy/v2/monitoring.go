@@ -29,13 +29,13 @@ var (
 	vhdsReject = monitoring.NewGauge(
 		"pilot_xds_vhds_reject",
 		"Pilot rejected VHDS.",
-		nodeTag, errTag,
+		monitoring.WithLabels(nodeTag, errTag),
 	)
 
 	vhdsExpiredNonce = monitoring.NewGauge(
 		"pilot_vhds_expired_nonce",
 		"Total number of VHDS messages with an expired nonce.",
-		nodeTag, errTag,
+		monitoring.WithLabels(nodeTag, errTag),
 	)
 
 	cdsReject = monitoring.NewGauge(

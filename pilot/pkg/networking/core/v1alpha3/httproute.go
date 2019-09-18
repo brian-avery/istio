@@ -155,69 +155,72 @@ func (configgen *ConfigGeneratorImpl) buildSidecarOutboundHTTPRouteConfig(env *m
 		}
 	}
 
-	cacheHit := false
-	if useSniffing && listenerPort != 0 {
-		// Check if we have already computed the list of all virtual hosts for this port
-		// If so, then  we simply have to return only the relevant virtual hosts for
-		// this listener's host:port
-		if vhosts, exists := vHostCache[listenerPort]; exists {
-			virtualHosts = getVirtualHostsForSniffedServicePort(vhosts, routeName)
-			cacheHit = true
+	//BAVERY_TODO: Find a better way to handle these environment variables than parsing each time
+	if enableVHDS, _ := strconv.ParseBool(node.Metadata["ENABLE_DYNAMIC_HOST_CONFIGURATION"]); !enableVHDS {
+		cacheHit := false
+		if useSniffing && listenerPort != 0 {
+			// Check if we have already computed the list of all virtual hosts for this port
+			// If so, then  we simply have to return only the relevant virtual hosts for
+			// this listener's host:port
+			if vhosts, exists := vHostCache[listenerPort]; exists {
+				virtualHosts = getVirtualHostsForSniffedServicePort(vhosts, routeName)
+				cacheHit = true
+			}
 		}
-	}
-	if !cacheHit {
-		virtualHosts = configgen.buildSidecarOutboundVirtualHosts(env, node, push, routeName, listenerPort)
-		if listenerPort > 0 {
-			// only cache for tcp ports and not for uds
-			vHostCache[listenerPort] = virtualHosts
+		if !cacheHit {
+			virtualHosts = configgen.buildSidecarOutboundVirtualHosts(env, node, push, routeName, listenerPort)
+			if listenerPort > 0 {
+				// only cache for tcp ports and not for uds
+				vHostCache[listenerPort] = virtualHosts
+			}
+
+			// FIXME: This will ignore virtual services with hostnames that do not match any service in the registry
+			// per api spec, these hostnames + routes should appear in the virtual hosts (think bookinfo.com and
+			// productpage.ns1.svc.cluster.local). See the TODO in buildSidecarOutboundVirtualHosts for the right solution
+			if useSniffing {
+				virtualHosts = getVirtualHostsForSniffedServicePort(virtualHosts, routeName)
+			}
 		}
 
-		// FIXME: This will ignore virtual services with hostnames that do not match any service in the registry
-		// per api spec, these hostnames + routes should appear in the virtual hosts (think bookinfo.com and
-		// productpage.ns1.svc.cluster.local). See the TODO in buildSidecarOutboundVirtualHosts for the right solution
-		if useSniffing {
-			virtualHosts = getVirtualHostsForSniffedServicePort(virtualHosts, routeName)
-		}
-	}
+		util.SortVirtualHosts(virtualHosts)
 
-	util.SortVirtualHosts(virtualHosts)
-
-	if features.EnableFallthroughRoute.Get() && !useSniffing {
-		// This needs to be the last virtual host, as routes are evaluated in order.
-		if isAllowAnyOutbound(node) {
-			virtualHosts = append(virtualHosts, &route.VirtualHost{
-				Name:    util.PassthroughRouteName,
-				Domains: []string{"*"},
-				Routes: []*route.Route{
-					{
-						Match: &route.RouteMatch{
-							PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-						},
-						Action: &route.Route_Route{
-							Route: &route.RouteAction{
-								ClusterSpecifier: &route.RouteAction_Cluster{Cluster: util.PassthroughCluster},
+		if features.EnableFallthroughRoute.Get() && !useSniffing {
+			// This needs to be the last virtual host, as routes are evaluated in order.
+			if isAllowAnyOutbound(node) {
+				virtualHosts = append(virtualHosts, &route.VirtualHost{
+					Name:    util.PassthroughRouteName,
+					Domains: []string{"*"},
+					Routes: []*route.Route{
+						{
+							Match: &route.RouteMatch{
+								PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
+							},
+							Action: &route.Route_Route{
+								Route: &route.RouteAction{
+									ClusterSpecifier: &route.RouteAction_Cluster{Cluster: util.PassthroughCluster},
+								},
 							},
 						},
 					},
-				},
-			})
-		} else {
-			virtualHosts = append(virtualHosts, &route.VirtualHost{
-				Name:    util.BlackHoleRouteName,
-				Domains: []string{"*"},
-				Routes: []*route.Route{
-					{
-						Match: &route.RouteMatch{
-							PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
-						},
-						Action: &route.Route_DirectResponse{
-							DirectResponse: &route.DirectResponseAction{
-								Status: 502,
+				})
+			} else {
+				virtualHosts = append(virtualHosts, &route.VirtualHost{
+					Name:    util.BlackHoleRouteName,
+					Domains: []string{"*"},
+					Routes: []*route.Route{
+						{
+							Match: &route.RouteMatch{
+								PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"},
+							},
+							Action: &route.Route_DirectResponse{
+								DirectResponse: &route.DirectResponseAction{
+									Status: 502,
+								},
 							},
 						},
 					},
-				},
-			})
+				})
+			}
 		}
 	}
 
@@ -375,11 +378,6 @@ func getVirtualHostsForSniffedServicePort(vhosts []*route.VirtualHost, routeName
 		virtualHosts = vhosts
 	}
 
-	//BAVERY_TODO: Find a better way to handle these environment variables than parsing each time
-	if enableVHDS, _ := strconv.ParseBool(node.Metadata["ENABLE_DYNAMIC_HOST_CONFIGURATION"]); enableVHDS {
-		return nil
-	}
-
 	return virtualHosts
 }
 
@@ -454,7 +452,7 @@ func getVirtualHosts(node *model.Proxy, push *model.PushContext,
 	var virtualHosts []*route.VirtualHost
 
 	// Get list of virtual services bound to the mesh gateway
-	virtualHostWrappers := istio_route.BuildSidecarVirtualHostsFromConfigAndRegistry(node, push, nameToServiceMap, proxyLabels, virtualServices, listenerPort)
+	virtualHostWrappers := istio_route.BuildSidecarVirtualHostsFromConfigAndRegistry(node, push, nameToServiceMap, virtualServices, listenerPort)
 	vHostPortMap := make(map[int][]*route.VirtualHost)
 	var name string
 	uniques := make(map[string]struct{})

@@ -37,7 +37,7 @@ type ConfigGenerator interface {
 	BuildHTTPRoutes(env *model.Environment, node *model.Proxy, push *model.PushContext, routeNames []string) []*v2.RouteConfiguration
 
 	//BuildVHosts returns the list of virtual hosts for the given proxy. This is the VHDS output
-	BuildVirtualHosts(env *model.Environment, node *model.Proxy, push *model.PushContext, routeNames []string) ([]route.VirtualHost, error)
+	BuildVirtualHosts(env *model.Environment, node *model.Proxy, push *model.PushContext, routeName string) []*route.VirtualHost
 }
 
 // NewConfigGenerator creates a new instance of the dataplane configuration generator

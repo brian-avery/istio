@@ -93,13 +93,15 @@ func (s *DiscoveryServer) generateRawRoutes(con *XdsConnection, push *model.Push
 }
 
 func (s *DiscoveryServer) generateRouteConfig(con *XdsConnection, push *model.PushContext, routeName string) (*xdsapi.RouteConfiguration, error) {
-	routeConfig := s.ConfigGenerator.BuildHTTPRoutes(s.Env, con.modelNode, push, routeName)
+	//BAVERY_TODO: Fix this
+	routeConfig := s.ConfigGenerator.BuildHTTPRoutes(s.Env, con.modelNode, push, []string{routeName})
 	if routeConfig == nil {
 		adsLog.Warnf("RDS: got nil value for route %s for node %v", routeName, con.modelNode)
 		return nil, nil
 	}
 
-	if err := routeConfig.Validate(); err != nil {
+	//BAVERY_TODO: Fix this
+	if err := routeConfig[0].Validate(); err != nil {
 		retErr := fmt.Errorf("RDS: Generated invalid route %s for node %v: %v", routeName, con.modelNode, err)
 		adsLog.Errorf("RDS: Generated invalid routes for route: %s for node: %v: %v, %v", routeName, con.modelNode, err, routeConfig)
 		deltaRdsBuildErrPushes.Increment()
@@ -109,7 +111,7 @@ func (s *DiscoveryServer) generateRouteConfig(con *XdsConnection, push *model.Pu
 		panic(retErr.Error())
 	}
 
-	return routeConfig, nil
+	return routeConfig[0], nil
 }
 
 func deltaRouteDiscoveryResponse(routeConfigs []*xdsapi.RouteConfiguration, removedResources []string) *xdsapi.DeltaDiscoveryResponse {
