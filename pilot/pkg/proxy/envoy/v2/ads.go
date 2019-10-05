@@ -426,6 +426,10 @@ func (s *DiscoveryServer) StreamAggregatedResources(stream ads.AggregatedDiscove
 	}
 }
 
+type xdsFoo interface {
+	GetNode() *core.Node
+}
+
 // update the node associated with the connection, after receiving a a packet from envoy.
 func (s *DiscoveryServer) initConnectionNode(node *core.Node, con *XdsConnection) error {
 	con.mu.RLock() // may not be needed - once per connection, but locking for consistency.

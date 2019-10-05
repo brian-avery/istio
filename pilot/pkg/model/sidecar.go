@@ -15,6 +15,7 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -58,6 +59,10 @@ type SidecarScope struct {
 	// object and process the Envoy listener or RDS based on the imported
 	// services/virtual services in that listener.
 	EgressListeners []*IstioEgressListenerWrapper
+
+	//DynamicEgressListeners is a list of egress listeners defined at runtime
+	// and their associated services.
+	DynamicEgressListeners []*IstioEgressListenerWrapper
 
 	// HasCustomIngressListeners is a convenience variable that if set to
 	// true indicates that the config object has one or more listeners.
@@ -360,6 +365,100 @@ func (sc *SidecarScope) GetEgressListenerForRDS(port int, bind string) *IstioEgr
 	// This should never be reached unless user explicitly set an empty array for egress
 	// listeners which we actually forbid
 	return nil
+}
+
+//AddDynamicVirtualHost supports subscribing to additional virtual hosts at runtime
+func (sc *SidecarScope) AddDynamicVirtualHost(routeConfigName uint32, host string, namespace string) error {
+	found := false
+	for _, egressPb := range sc.Config.Egress {
+		if egressPb.Port.Number != routeConfigName {
+			continue
+		}
+		found = true
+		egressPb.Hosts = append(egressPb.Hosts, host)
+		break
+	}
+	if !found {
+		sidecarConfig.Egress = append(sidecarConfig.Egress, &networking.IstioEgressListener{
+			Port: &networking.Port{
+				Number:   routeConfigName,
+				Protocol: "HTTP",
+			},
+		})
+	}
+
+	sdCfg := &Config{
+		Spec: sidecarConfig,
+	}
+
+	r := sc.Config.Spec.(*netowrking.Sidecar)
+	out := &SidecarScope{}
+	updateSidecarScope := ConvertToSidecarScope(sc.PushContext, sdCfg, namespace)
+
+	//does this egress already exist?
+	for _, e := range r.Egress {
+
+	}
+
+}
+
+func (sc *SidecarScope) UpdateSidecarScope() error {
+	r, ok := sc.Config.Spec.(*networking.Sidecar)
+	if !ok {
+		return fmt.Errorf("Sidecar was invalid.")
+	}
+
+	for _, e := range r.Egress {
+		out.EgressListeners = append(out.EgressListeners,
+			convertIstioListenerToWrapper(ps, configNamespace, e))
+	}
+	out.NamespaceForHostname = createNamespaceForHostname(out.EgressListeners)
+
+	// Now collect all the imported services across all egress listeners in
+	// this sidecar crd. This is needed to generate CDS output
+	out.services = make([]*Service, 0)
+	servicesAdded := make(map[string]struct{})
+	dummyNode := Proxy{
+		ConfigNamespace: configNamespace,
+	}
+
+	// Assign namespace dependencies
+	out.namespaceDependencies = make(map[string]struct{})
+	for _, listener := range out.EgressListeners {
+		for _, s := range listener.services {
+			// TODO: port merging when each listener generates a partial service
+			if _, found := servicesAdded[string(s.Hostname)]; !found {
+				servicesAdded[string(s.Hostname)] = struct{}{}
+				out.services = append(out.services, s)
+				out.namespaceDependencies[s.Attributes.Namespace] = struct{}{}
+			}
+		}
+	}
+
+	// Now that we have all the services that sidecars using this scope (in
+	// this config namespace) will see, identify all the destinationRules
+	// that these services need
+	out.destinationRules = make(map[host.Name]*Config)
+	for _, s := range out.services {
+		out.destinationRules[s.Hostname] = ps.DestinationRule(&dummyNode, s)
+	}
+
+	if r.OutboundTrafficPolicy == nil {
+		if ps.Env.Mesh.OutboundTrafficPolicy != nil {
+			out.OutboundTrafficPolicy = &networking.OutboundTrafficPolicy{
+				Mode: networking.OutboundTrafficPolicy_Mode(ps.Env.Mesh.OutboundTrafficPolicy.Mode),
+			}
+		}
+	} else {
+		out.OutboundTrafficPolicy = r.OutboundTrafficPolicy
+	}
+
+	out.Config = sidecarConfig
+	if len(r.Ingress) > 0 {
+		out.HasCustomIngressListeners = true
+	}
+
+	return out
 }
 
 // Services returns the list of services imported by this egress listener

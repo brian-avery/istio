@@ -91,7 +91,7 @@ func connectDeltaADS(url string) (ads.AggregatedDiscoveryService_DeltaAggregated
 func sendDeltaRDSReq(node string, subscribeRoutes []string, unsubscribeRoutes []string,
 	nonce string, rdsConnection ads.AggregatedDiscoveryService_DeltaAggregatedResourcesClient, vhdsEnabled bool) error {
 	deltaMeta := nodeMetadata
-	deltaMeta.Fields["ENABLE_DYNAMIC_HOST_CONFIGURATION"] = &proto.Value{Kind: &proto.Value_StringValue{StringValue: strconv.FormatBool(vhdsEnabled)}}
+	deltaMeta.Fields["DYNAMIC_CONFIG"] = &proto.Value{Kind: &proto.Value_StringValue{StringValue: strconv.FormatBool(vhdsEnabled)}}
 
 	err := rdsConnection.Send(&xdsapi.DeltaDiscoveryRequest{
 		ResponseNonce: nonce,
@@ -341,7 +341,7 @@ func sendRDSNack(node string, _ []string, nonce string, rdsstr ads.AggregatedDis
 
 func sendDeltaVHDSSubscribeReq(node string, hosts []string, nonce string, vhdsstr ads.AggregatedDiscoveryService_DeltaAggregatedResourcesClient, vhdsEnabled bool) error {
 	deltaMeta := nodeMetadata
-	deltaMeta.Fields["ENABLE_DYNAMIC_HOST_CONFIGURATION"] = &proto.Value{Kind: &proto.Value_StringValue{StringValue: strconv.FormatBool(vhdsEnabled)}}
+	deltaMeta.Fields["DYNAMIC_CONFIG"] = &proto.Value{Kind: &proto.Value_StringValue{StringValue: strconv.FormatBool(vhdsEnabled)}}
 
 	err := vhdsstr.Send(&xdsapi.DeltaDiscoveryRequest{
 		ResponseNonce: nonce,

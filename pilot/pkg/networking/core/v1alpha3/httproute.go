@@ -156,7 +156,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarOutboundHTTPRouteConfig(env *m
 	}
 
 	//BAVERY_TODO: Find a better way to handle these environment variables than parsing each time
-	if enableVHDS, _ := strconv.ParseBool(node.Metadata["ENABLE_DYNAMIC_HOST_CONFIGURATION"]); !enableVHDS {
+	if enableVHDS, _ := strconv.ParseBool(node.Metadata["DYNAMIC_CONFIG"]); !enableVHDS {
 		cacheHit := false
 		if useSniffing && listenerPort != 0 {
 			// Check if we have already computed the list of all virtual hosts for this port

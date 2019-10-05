@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/status"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/pkg/networking/util"
 )
 
 func newDeltaXdsConnection(peerAddr string, stream DeltaDiscoveryStream) *XdsConnection {
@@ -37,54 +36,6 @@ type DeltaDiscoveryStream interface {
 	Send(*xdsapi.DeltaDiscoveryResponse) error
 	Recv() (*xdsapi.DeltaDiscoveryRequest, error)
 	grpc.ServerStream
-}
-
-// update the node associated with the connection, after receiving a a packet from envoy.
-func (s *DiscoveryServer) initDeltaConnectionNode(discReq *xdsapi.DeltaDiscoveryRequest, con *XdsConnection) error {
-	con.mu.RLock() // may not be needed - once per connection, but locking for consistency.
-	if con.modelNode != nil {
-		con.mu.RUnlock()
-		return nil // only need to init the node on first request in the stream
-	}
-	con.mu.RUnlock()
-
-	if discReq.Node == nil || discReq.Node.Id == "" {
-		return errors.New("missing node id")
-	}
-	nt, err := model.ParseServiceNodeWithMetadata(discReq.Node.Id, model.ParseMetadata(discReq.Node.Metadata))
-	if err != nil {
-		return err
-	}
-	// Update the config namespace associated with this proxy
-	nt.ConfigNamespace = model.GetProxyConfigNamespace(nt)
-	nt.Locality = discReq.Node.Locality
-
-	if err := nt.SetServiceInstances(s.Env); err != nil {
-		return err
-	}
-
-	if util.IsLocalityEmpty(nt.Locality) {
-		// Get the locality from the proxy's service instances.
-		// We expect all instances to have the same locality. So its enough to look at the first instance
-		if len(nt.ServiceInstances) > 0 {
-			nt.Locality = util.ConvertLocality(nt.ServiceInstances[0].GetLocality())
-		}
-	}
-
-	// Set the sidecarScope associated with this proxy if its a sidecar.
-	if nt.Type == model.SidecarProxy {
-		nt.SetSidecarScope(s.globalPushContext())
-	}
-
-	con.mu.Lock()
-	con.modelNode = nt
-	if con.ConID == "" {
-		// first request
-		con.ConID = connectionID(discReq.Node.Id)
-	}
-	con.mu.Unlock()
-
-	return nil
 }
 
 func receiveDeltaXdsThread(con *XdsConnection, reqChannel chan *xdsapi.DeltaDiscoveryRequest, errP *error) {
@@ -120,6 +71,7 @@ func (s *DiscoveryServer) DeltaAggregatedResources(stream ads.AggregatedDiscover
 		peerAddr = peerInfo.Addr.String()
 	}
 
+	t0 := time.Now()
 	//Bavery_QUESTION: Multiple Pilot instances? How to handle shared list?
 
 	// first call - lazy loading, in tests. This should not happen if readiness
@@ -157,7 +109,7 @@ func (s *DiscoveryServer) DeltaAggregatedResources(stream ads.AggregatedDiscover
 				// Remote side closed connection.
 				return receiveError
 			}
-			err = s.initDeltaConnectionNode(discReq, con)
+			err = s.initConnectionNode(discReq, con)
 			if err != nil {
 				return err
 			}
@@ -168,7 +120,7 @@ func (s *DiscoveryServer) DeltaAggregatedResources(stream ads.AggregatedDiscover
 			case ListenerType:
 				return status.Errorf(codes.Unimplemented, "not implemented")
 			case RouteType:
-				if con.vhdsEnabled, _ = strconv.ParseBool(con.modelNode.Metadata["ENABLE_DYNAMIC_HOST_CONFIGURATION"]); con.vhdsEnabled == true {
+				if con.vhdsEnabled, _ = strconv.ParseBool(con.modelNode.Metadata["DYNAMIC_CONFIG"]); con.vhdsEnabled == true {
 					fmt.Printf("BAVERY: VHDS enabled.\n")
 				}
 				fmt.Printf("Bavery: received RDS request. \n subscribe: %+v \n unsubscribe: %+v vhds should be: %+v\n\n", discReq.GetResourceNamesSubscribe(), discReq.GetResourceNamesUnsubscribe(), con.vhdsEnabled)
@@ -236,7 +188,7 @@ func (s *DiscoveryServer) DeltaAggregatedResources(stream ads.AggregatedDiscover
 
 			case VhdsType:
 				//BAVERY_TODO: Find a better way to handle these environment variables than parsing each time
-				if enableVHDS, _ := strconv.ParseBool(con.modelNode.Metadata["ENABLE_DYNAMIC_HOST_CONFIGURATION"]); !enableVHDS {
+				if enableVHDS, _ := strconv.ParseBool(con.modelNode.Metadata["DYNAMIC_CONFIG"]); !enableVHDS {
 					return status.Errorf(codes.Unavailable, "VHDS not enabled.")
 				}
 
@@ -358,9 +310,7 @@ func (conn *XdsConnection) sendDelta(res *xdsapi.DeltaDiscoveryResponse) error {
 
 func subscribeToVHost(sidecarScope *model.SidecarScope, pushContext *model.PushContext,
 	routeConfigName uint32, host string, namespace string) (*model.SidecarScope, error) {
-	if sidecarScope == nil {
-		return nil, fmt.Errorf("nil sidecar scope")
-	}
+
 
 	var sidecarConfig *networking.Sidecar
 	var ok bool
