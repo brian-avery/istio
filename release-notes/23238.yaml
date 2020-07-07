@@ -1,6 +1,7 @@
-Kind: BugFix #BugFix,SecurityFix,Feature,Test
+Kind: BugFix
+Area: MyArea
 Issue: 23238
-ReleaseNotes: | *Fixed* an issue preventing the operator from recreating watched resources if they are deleted
+ReleaseNotes: |
+  Fixed an issue preventing the operator from recreating watched resources if they are deleted
 UpgradeNotes: ""
 SecurityNotes: ""
-

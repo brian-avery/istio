@@ -1,6 +1,8 @@
 Kind: BugFix #BugFix,SecurityFix,Feature,Test
 Issue: 24624
-ReleaseNotes: | *Fixed* an issue where Istio crashed with the message: proto.Message is *client.QuotaSpecBinding, not *client.QuotaSpecBinding
+Area: MyArea
+ReleaseNotes: | 
+  *Fixed* an issue where Istio crashed with the message: proto.Message is *client.QuotaSpecBinding, not *client.QuotaSpecBinding
 UpgradeNotes: ""
 SecurityNotes: ""
 
