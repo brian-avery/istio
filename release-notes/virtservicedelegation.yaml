@@ -1,0 +1,6 @@
+Kind: Feature #BugFix,SecurityFix,Feature,Test
+Issue: 24624
+ReleaseNotes: | *Added* VirtualService delegation. This allows mesh routing configurations to be specified in multiple composable VirtualServices.
+UpgradeNotes: ""
+SecurityNotes: ""
+
