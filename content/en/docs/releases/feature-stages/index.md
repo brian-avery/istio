@@ -99,7 +99,7 @@ Experimental features are purposefully not listed on this page.
 
 | Feature           | Phase
 |-------------------|-------------------
-| [Standalone Operator](/docs/setup/install/operator/) | Beta
+| [In-Cluster Operator](/docs/setup/install/operator/) | Beta
 | [Kubernetes: Envoy Installation and Traffic Interception](/docs/setup/) | Stable
 | [Kubernetes: Istio Control Plane Installation](/docs/setup/) | Stable
 | [Multicluster Mesh](/docs/setup/install/multicluster/) | Beta
