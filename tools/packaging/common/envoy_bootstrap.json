@@ -289,12 +289,6 @@
                     }
                   }
                 }
-              },
-              "validation_context": {
-                "trusted_ca": {
-                  "filename": "{{- .provisioned_cert }}"
-                 },
-                "match_subject_alt_names": {{ .pilot_SAN }}
               }
             }
           }
